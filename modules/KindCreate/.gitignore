@@ -1,0 +1,5 @@
+/data/.kindcreate_state.json
+__pycache__/
+*.pyc
+venv/
+.env

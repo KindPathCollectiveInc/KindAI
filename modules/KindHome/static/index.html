@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KindHome</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0d0d1a;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:1.5rem}
+    h1{font-size:1.4rem;font-weight:600;color:#fb923c;margin-bottom:1.5rem;letter-spacing:.03em}
+    h2{font-size:.85rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;margin-bottom:.75rem}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-bottom:1.5rem}
+    .card{background:#1e120d;border:1px solid #3d2419;border-radius:10px;padding:1.2rem}
+    .metric{font-size:2rem;font-weight:700;color:#fb923c}
+    .label{font-size:.75rem;color:#6b7280;margin-top:.25rem}
+    form{display:flex;flex-direction:column;gap:.5rem}
+    select,input{background:#2a1a10;border:1px solid #4d3020;border-radius:6px;color:#e0e0e0;padding:.5rem .75rem;font-size:.85rem;width:100%}
+    button{background:#c2410c;color:#fff;border:none;border-radius:6px;padding:.55rem 1.2rem;cursor:pointer;font-size:.85rem;font-weight:600}
+    button:hover{background:#9a3412}
+    button.sm{padding:.25rem .5rem;font-size:.72rem}
+    .list{list-style:none;display:flex;flex-direction:column;gap:.35rem;max-height:280px;overflow-y:auto}
+    .list li{background:#1e120d;border:1px solid #3d2419;border-radius:6px;padding:.45rem .75rem;font-size:.8rem;display:flex;justify-content:space-between;align-items:center}
+    .tag{background:#7c2d12;color:#fb923c;border-radius:4px;padding:.1rem .4rem;font-size:.7rem}
+    .overdue{color:#ef4444;font-weight:700}
+    #status{font-size:.75rem;color:#6b7280;margin-bottom:1rem}
+  </style>
+</head>
+<body>
+
+<h1>KindHome</h1>
+<div id="status">Loading...</div>
+
+<div class="grid">
+  <div class="card"><div class="metric" id="m-tasks">—</div><div class="label">Pending Tasks</div></div>
+  <div class="card"><div class="metric" id="m-bills">—</div><div class="label">Upcoming Bills</div></div>
+  <div class="card"><div class="metric" id="m-shopping">—</div><div class="label">Shopping Items</div></div>
+  <div class="card"><div class="metric" id="m-overdue" style="color:#ef4444">—</div><div class="label">Overdue Bills</div></div>
+</div>
+
+<div class="grid">
+  <div class="card" style="grid-column:span 2">
+    <h2>Tasks</h2>
+    <ul class="list" id="task-list"></ul>
+    <form id="task-form" style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap">
+      <input id="t-title" type="text" placeholder="Task title" style="flex:2;min-width:120px" />
+      <input id="t-due" type="date" style="flex:1;min-width:100px" />
+      <select id="t-recur" style="flex:1;min-width:80px">
+        <option value="">Once</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+      </select>
+      <button type="submit" style="flex:none">Add</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Bills</h2>
+    <ul class="list" id="bill-list"></ul>
+    <form id="bill-form" style="margin-top:.75rem">
+      <input id="b-name" type="text" placeholder="Bill name" />
+      <input id="b-amount" type="number" placeholder="Amount ($)" step="0.01" />
+      <input id="b-due" type="date" />
+      <button type="submit">Add Bill</button>
+    </form>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+    <h2 style="margin:0">Shopping List</h2>
+    <button class="sm" onclick="clearGot()">Clear Got Items</button>
+  </div>
+  <ul class="list" id="shopping-list"></ul>
+  <form id="shopping-form" style="margin-top:.75rem;display:flex;gap:.5rem">
+    <input id="s-item" type="text" placeholder="Item" style="flex:2" />
+    <input id="s-qty" type="text" placeholder="Qty" style="flex:1;max-width:80px" />
+    <button type="submit" style="flex:none">Add</button>
+  </form>
+</div>
+
+<script>
+const API='/api';
+
+async function load() {
+  const [health, tasks, bills, shopping] = await Promise.all([
+    fetch(`${API}/health`).then(r=>r.json()).catch(()=>null),
+    fetch(`${API}/tasks?limit=40`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/bills`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/shopping`).then(r=>r.json()).catch(()=>[]),
+  ]);
+
+  const pending = tasks.filter(t=>t.status==='pending');
+  const today = new Date().toISOString().slice(0,10);
+  const overdue = bills.filter(b=>b.status!=='paid' && b.due_date && b.due_date < today);
+
+  document.getElementById('m-tasks').textContent = pending.length;
+  document.getElementById('m-bills').textContent = bills.filter(b=>b.status!=='paid').length;
+  document.getElementById('m-shopping').textContent = shopping.filter(s=>!s.got).length;
+  document.getElementById('m-overdue').textContent = overdue.length;
+  if (health) document.getElementById('status').textContent = `KindHome ok`;
+
+  const tList = document.getElementById('task-list');
+  tList.innerHTML = pending.slice(0,15).map(t=>`
+    <li>
+      <span>${t.title}${t.due_date?' <small style="color:#6b7280">due '+t.due_date+'</small>':''}${t.recurring?' <span class="tag">'+t.recurring+'</span>':''}</span>
+      <button class="sm" onclick="completeTask(${t.id})">Done</button>
+    </li>`).join('') || '<li style="color:#6b7280">No pending tasks.</li>';
+
+  const bList = document.getElementById('bill-list');
+  bList.innerHTML = bills.filter(b=>b.status!=='paid').map(b=>`
+    <li>
+      <span class="${overdue.find(o=>o.id===b.id)?'overdue':''}">${b.name} <strong>$${parseFloat(b.amount||0).toFixed(2)}</strong>${b.due_date?' due '+b.due_date:''}</span>
+      <button class="sm" onclick="payBill(${b.id})">Paid</button>
+    </li>`).join('') || '<li style="color:#6b7280">No outstanding bills.</li>';
+
+  const sList = document.getElementById('shopping-list');
+  sList.innerHTML = shopping.map(s=>`
+    <li style="${s.got?'opacity:.5;text-decoration:line-through':''}">
+      <span>${s.item}${s.quantity?' × '+s.quantity:''}</span>
+      ${!s.got?`<button class="sm" onclick="markGot(${s.id})">Got it</button>`:'<span style="font-size:.7rem;color:#34d399">✓</span>'}
+    </li>`).join('') || '<li style="color:#6b7280">Empty list.</li>';
+}
+
+async function completeTask(id) {
+  await fetch(`${API}/tasks/${id}/complete`,{method:'POST'});
+  load();
+}
+async function payBill(id) {
+  await fetch(`${API}/bills/${id}/pay`,{method:'POST'});
+  load();
+}
+async function markGot(id) {
+  await fetch(`${API}/shopping/${id}/got`,{method:'POST'});
+  load();
+}
+async function clearGot() {
+  await fetch(`${API}/shopping/clear-got`,{method:'POST'});
+  load();
+}
+
+document.getElementById('task-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const title = document.getElementById('t-title').value.trim();
+  if (!title) return;
+  const due_date = document.getElementById('t-due').value || null;
+  const recurring = document.getElementById('t-recur').value || null;
+  await fetch(`${API}/tasks`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,due_date,recurring})});
+  document.getElementById('t-title').value=''; load();
+});
+
+document.getElementById('bill-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('b-name').value.trim();
+  const amount = document.getElementById('b-amount').value;
+  const due_date = document.getElementById('b-due').value || null;
+  if (!name) return;
+  await fetch(`${API}/bills`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,amount:parseFloat(amount)||null,due_date})});
+  document.getElementById('b-name').value=''; document.getElementById('b-amount').value=''; document.getElementById('b-due').value=''; load();
+});
+
+document.getElementById('shopping-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const item = document.getElementById('s-item').value.trim();
+  if (!item) return;
+  const quantity = document.getElementById('s-qty').value.trim();
+  await fetch(`${API}/shopping`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({item,quantity})});
+  document.getElementById('s-item').value=''; document.getElementById('s-qty').value=''; load();
+});
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

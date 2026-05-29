@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.kindsocials_state.json
+recordings/*.wav
+recordings/*.mp3
+recordings/*.flac
+recordings/*.aiff
+.env

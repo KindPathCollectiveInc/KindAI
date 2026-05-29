@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KindLife</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0d0d1a;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:1.5rem}
+    h1{font-size:1.6rem;font-weight:700;color:#a78bfa;margin-bottom:.25rem;letter-spacing:.02em}
+    .subtitle{font-size:.85rem;color:#6b7280;margin-bottom:1.5rem}
+    h2{font-size:.85rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;margin-bottom:.75rem}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.75rem;margin-bottom:1.5rem}
+    .card{border-radius:10px;padding:1.1rem;position:relative}
+    .module-card{background:#12122a;border:1px solid #1e1e3f;cursor:pointer;transition:border-color .15s}
+    .module-card:hover{border-color:#6d28d9}
+    .module-card.online{border-left:3px solid #4ade80}
+    .module-card.offline{border-left:3px solid #374151;opacity:.55}
+    .module-name{font-size:.95rem;font-weight:600;margin-bottom:.25rem}
+    .module-status{font-size:.72rem;color:#6b7280}
+    .module-detail{font-size:.78rem;color:#9ca3af;margin-top:.3rem}
+    .attention-list{list-style:none;display:flex;flex-direction:column;gap:.35rem;margin-bottom:1.5rem}
+    .attention-list li{background:#1a1225;border:1px solid #2d1a3d;border-radius:8px;padding:.55rem .9rem;font-size:.82rem;display:flex;justify-content:space-between;align-items:center}
+    .urgency-high{color:#ef4444;font-weight:700;font-size:.72rem}
+    .urgency-medium{color:#f59e0b;font-size:.72rem}
+    .urgency-low{color:#6b7280;font-size:.72rem}
+    .bundle-bar{background:#12122a;border:1px solid #1e1e3f;border-radius:10px;padding:1rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+    .bundle-name{font-weight:600;color:#a78bfa;font-size:.95rem}
+    .bundle-tag{font-size:.75rem;color:#6b7280}
+    button.activate{background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:.35rem .8rem;cursor:pointer;font-size:.78rem}
+    button.activate:hover{background:#6d28d9}
+    .date-display{font-size:.8rem;color:#6b7280;margin-bottom:1rem}
+    #status{font-size:.75rem;color:#6b7280;margin-bottom:.5rem}
+
+    /* Module portal icons */
+    .portal-icon{font-size:1.4rem;margin-bottom:.3rem}
+  </style>
+</head>
+<body>
+
+<h1>KindLife</h1>
+<p class="subtitle">Your unified life overview — every module in one place.</p>
+<div id="status">Loading overview...</div>
+<div class="date-display" id="date-display"></div>
+
+<div class="bundle-bar" id="bundle-bar">
+  <div>
+    <div class="bundle-tag">Active Bundle</div>
+    <div class="bundle-name" id="bundle-name">—</div>
+  </div>
+  <a href="http://localhost:7870" target="_blank" style="text-decoration:none"><button class="activate">Open KCE</button></a>
+</div>
+
+<div id="attention-area">
+  <h2>Needs Attention</h2>
+  <ul class="attention-list" id="attention-list"><li style="color:#6b7280;font-size:.8rem">Loading...</li></ul>
+</div>
+
+<h2 style="margin-top:1rem">Modules</h2>
+<div class="grid" id="module-grid"></div>
+
+<script>
+const API = '/api';
+const MODULE_PORTALS = {
+  kindhealth : { name: 'KindHealth', icon: '💚', port: 7869, color: '#a78bfa' },
+  kindhome   : { name: 'KindHome',   icon: '🏠', port: 7866, color: '#fb923c' },
+  kindwork   : { name: 'KindWork',   icon: '💼', port: 7867, color: '#facc15' },
+  kindcare   : { name: 'KindCare',   icon: '🤝', port: 7865, color: '#f472b6' },
+  kindis     : { name: 'KiNDIS',     icon: '📋', port: 7864, color: '#38bdf8' },
+  kindstudy  : { name: 'KindStudy',  icon: '📚', port: 7871, color: '#34d399' },
+  kindbiz    : { name: 'KindBiz',    icon: '🏦', port: 7868, color: '#2dd4bf' },
+  kindcreate : { name: 'KindCreate', icon: '🎨', port: 7863, color: '#c084fc' },
+  kindsocials: { name: 'KindSocials',icon: '📡', port: 7862, color: '#60a5fa' },
+  kindfluence: { name: 'Kindfluence',icon: '🌱', port: 7861, color: '#86efac' },
+  kindpathresearch: { name: 'Research', icon: '🔬', port: 7872, color: '#e879f9' },
+};
+
+const today = new Date();
+document.getElementById('date-display').textContent = today.toLocaleDateString('en-AU', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+
+async function load() {
+  const [overview, moduleStatus, bundle] = await Promise.all([
+    fetch(`${API}/overview`).then(r=>r.json()).catch(()=>null),
+    fetch(`${API}/modules/status`).then(r=>r.json()).catch(()=>null),
+    fetch(`${API}/bundles/active`).then(r=>r.json()).catch(()=>null),
+  ]);
+
+  document.getElementById('status').textContent = 'KindLife ok';
+
+  // Bundle
+  if (bundle && bundle.name) {
+    document.getElementById('bundle-name').textContent = bundle.name;
+  } else {
+    document.getElementById('bundle-name').textContent = 'No bundle active';
+  }
+
+  // Attention
+  const attention = overview?.attention || [];
+  const aList = document.getElementById('attention-list');
+  if (attention.length) {
+    aList.innerHTML = attention.map(a=>`
+      <li>
+        <span>${a.message}</span>
+        <span class="urgency-${a.urgency}">${a.urgency.toUpperCase()}</span>
+      </li>`).join('');
+  } else {
+    aList.innerHTML = '<li style="color:#4ade80;font-size:.8rem">✓ Nothing urgent right now.</li>';
+  }
+
+  // Module grid
+  const grid = document.getElementById('module-grid');
+  grid.innerHTML = '';
+  const allModules = {...MODULE_PORTALS};
+  for (const [id, info] of Object.entries(allModules)) {
+    const status = moduleStatus?.[id];
+    const online = status?.online;
+    const health = status?.health;
+    const card = document.createElement('div');
+    card.className = `card module-card ${online ? 'online' : 'offline'}`;
+    card.innerHTML = `
+      <div class="portal-icon">${info.icon}</div>
+      <div class="module-name" style="color:${info.color}">${info.name}</div>
+      <div class="module-status">${online ? '● online' : '○ offline'}</div>
+      <div class="module-detail">${getModuleDetail(id, overview, health)}</div>
+    `;
+    if (online) {
+      card.addEventListener('click', () => window.open(`http://localhost:${info.port}`, '_blank'));
+    }
+    grid.appendChild(card);
+  }
+}
+
+function getModuleDetail(id, overview, health) {
+  if (!health || health.status === 'offline') return 'Port not responding';
+  const mod = overview?.modules?.[id.replace('kindis','kindis').replace('kindpathresearch','')];
+  if (id === 'kindhome') return `${health.pending_tasks||0} tasks · ${health.overdue_bills||0} overdue bills`;
+  if (id === 'kindwork') return `${health.active_applications||0} applications`;
+  if (id === 'kindhealth') return health.last_mood ? `Mood: ${health.last_mood}` : 'No entries yet';
+  if (id === 'kindstudy') return `${health.total_cards||0} cards total`;
+  if (id === 'kindbiz') return `${health.overdue_invoices||0} overdue invoices`;
+  if (id === 'kindcare') return health.last_mood ? `Last check-in: ${health.last_mood}` : 'No check-ins yet';
+  if (id === 'kindis') return `${health.total_participants||0} participants`;
+  return health.status || 'ok';
+}
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

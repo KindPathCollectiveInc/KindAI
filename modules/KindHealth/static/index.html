@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KindHealth</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0d0d1a;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:1.5rem}
+    h1{font-size:1.4rem;font-weight:600;color:#a78bfa;margin-bottom:1.5rem;letter-spacing:.03em}
+    h2{font-size:.85rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;margin-bottom:.75rem}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem;margin-bottom:1.5rem}
+    .card{background:#12122a;border:1px solid #1e1e3f;border-radius:10px;padding:1.2rem}
+    .metric{font-size:2rem;font-weight:700;color:#a78bfa}
+    .label{font-size:.75rem;color:#6b7280;margin-top:.25rem}
+    form{display:flex;flex-direction:column;gap:.5rem}
+    select,input,textarea{background:#1e1e3f;border:1px solid #2d2d5f;border-radius:6px;color:#e0e0e0;padding:.5rem .75rem;font-size:.85rem;width:100%}
+    button{background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:.55rem 1.2rem;cursor:pointer;font-size:.85rem;font-weight:600}
+    button:hover{background:#6d28d9}
+    .entry-list{list-style:none;display:flex;flex-direction:column;gap:.35rem;max-height:300px;overflow-y:auto}
+    .entry-list li{background:#1a1a33;border-radius:6px;padding:.5rem .75rem;font-size:.8rem;display:flex;justify-content:space-between}
+    .tag{background:#2d1b69;color:#a78bfa;border-radius:4px;padding:.1rem .4rem;font-size:.7rem}
+    .offline{color:#ef4444;font-size:.8rem}
+    #status{font-size:.75rem;color:#6b7280;margin-bottom:1rem}
+    .section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem}
+  </style>
+</head>
+<body>
+
+<h1>KindHealth</h1>
+<div id="status">Loading...</div>
+
+<div class="grid" id="metrics-grid">
+  <div class="card"><div class="metric" id="m-mood">—</div><div class="label">Latest Mood</div></div>
+  <div class="card"><div class="metric" id="m-energy">—</div><div class="label">Latest Energy</div></div>
+  <div class="card"><div class="metric" id="m-sleep">—</div><div class="label">Latest Sleep (hrs)</div></div>
+  <div class="card"><div class="metric" id="m-entries">—</div><div class="label">Entries This Week</div></div>
+</div>
+
+<div class="grid">
+  <div class="card" style="grid-column:span 2">
+    <div class="section-header"><h2>Add Entry</h2></div>
+    <form id="entry-form">
+      <select id="entry-type">
+        <option value="mood">Mood</option>
+        <option value="energy">Energy</option>
+        <option value="sleep">Sleep</option>
+        <option value="symptom">Symptom</option>
+        <option value="movement">Movement</option>
+        <option value="water">Water</option>
+        <option value="food_note">Food Note</option>
+        <option value="stress">Stress</option>
+        <option value="check_in">Check-in</option>
+      </select>
+      <input id="entry-value" type="text" placeholder="Value (e.g. 7, good, 2km)" />
+      <input id="entry-notes" type="text" placeholder="Notes (optional)" />
+      <button type="submit">Log Entry</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Medications</h2>
+    <div id="med-list" style="font-size:.8rem;color:#9ca3af">Loading...</div>
+    <form id="med-form" style="margin-top:.75rem">
+      <input id="med-name" type="text" placeholder="Medication name" />
+      <input id="med-dose" type="text" placeholder="Dose + frequency" />
+      <button type="submit" style="margin-top:.25rem">Add</button>
+    </form>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Recent Entries</h2>
+  <ul class="entry-list" id="entry-list"></ul>
+</div>
+
+<script>
+const API = '/api';
+
+async function loadEntries() {
+  const r = await fetch(`${API}/entries?limit=40`).catch(()=>null);
+  if (!r?.ok) return;
+  const d = await r.json();
+  const list = document.getElementById('entry-list');
+  list.innerHTML = '';
+  let moodVal='—', energyVal='—', sleepVal='—';
+  d.forEach(e => {
+    if (e.entry_type==='mood' && moodVal==='—') moodVal=e.value;
+    if (e.entry_type==='energy' && energyVal==='—') energyVal=e.value;
+    if (e.entry_type==='sleep' && sleepVal==='—') sleepVal=e.value;
+    const li = document.createElement('li');
+    li.innerHTML = `<span><span class="tag">${e.entry_type}</span> ${e.value}${e.notes?' — '+e.notes:''}</span><span style="color:#6b7280">${e.recorded_at?.slice(0,10)||''}</span>`;
+    list.appendChild(li);
+  });
+  document.getElementById('m-mood').textContent = moodVal;
+  document.getElementById('m-energy').textContent = energyVal;
+  document.getElementById('m-sleep').textContent = sleepVal;
+  document.getElementById('m-entries').textContent = d.length;
+}
+
+async function loadMeds() {
+  const r = await fetch(`${API}/medications`).catch(()=>null);
+  if (!r?.ok) return;
+  const d = await r.json();
+  const el = document.getElementById('med-list');
+  el.innerHTML = d.length ? d.map(m=>`<div style="padding:.25rem 0;border-bottom:1px solid #1e1e3f"><strong>${m.name}</strong> — ${m.dose_schedule}</div>`).join('') : 'No medications logged.';
+}
+
+document.getElementById('entry-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const type = document.getElementById('entry-type').value;
+  const value = document.getElementById('entry-value').value.trim();
+  const notes = document.getElementById('entry-notes').value.trim();
+  if (!value) return;
+  await fetch(`${API}/entries`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({entry_type:type, value, notes}) });
+  document.getElementById('entry-value').value = '';
+  document.getElementById('entry-notes').value = '';
+  loadEntries();
+});
+
+document.getElementById('med-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('med-name').value.trim();
+  const dose = document.getElementById('med-dose').value.trim();
+  if (!name) return;
+  await fetch(`${API}/medications`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, dose_schedule:dose}) });
+  document.getElementById('med-name').value = '';
+  document.getElementById('med-dose').value = '';
+  loadMeds();
+});
+
+fetch(`${API}/health`).then(r=>r.json()).then(d=>{ document.getElementById('status').textContent = `KindHealth ${d.status||'ok'}`; }).catch(()=>{ document.getElementById('status').innerHTML = '<span class="offline">KindHealth offline</span>'; });
+loadEntries();
+loadMeds();
+setInterval(loadEntries, 30000);
+</script>
+</body>
+</html>

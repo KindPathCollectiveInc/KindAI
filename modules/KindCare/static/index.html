@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KindCare</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0d0d1a;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:1.5rem}
+    h1{font-size:1.4rem;font-weight:600;color:#f472b6;margin-bottom:1.5rem;letter-spacing:.03em}
+    h2{font-size:.85rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;margin-bottom:.75rem}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-bottom:1.5rem}
+    .card{background:#1e0d12;border:1px solid #3d1a24;border-radius:10px;padding:1.2rem}
+    .metric{font-size:2rem;font-weight:700;color:#f472b6}
+    .label{font-size:.75rem;color:#6b7280;margin-top:.25rem}
+    form{display:flex;flex-direction:column;gap:.5rem}
+    select,input,textarea{background:#2a1220;border:1px solid #4d2233;border-radius:6px;color:#e0e0e0;padding:.5rem .75rem;font-size:.85rem;width:100%}
+    button{background:#be185d;color:#fff;border:none;border-radius:6px;padding:.55rem 1.2rem;cursor:pointer;font-size:.85rem;font-weight:600}
+    button:hover{background:#9d174d}
+    .list{list-style:none;display:flex;flex-direction:column;gap:.35rem;max-height:280px;overflow-y:auto}
+    .list li{background:#1e0d12;border:1px solid #3d1a24;border-radius:6px;padding:.5rem .75rem;font-size:.8rem;display:flex;justify-content:space-between;align-items:center}
+    .tag{background:#831843;color:#f472b6;border-radius:4px;padding:.1rem .4rem;font-size:.7rem}
+    .safety-ok{color:#34d399;font-size:.8rem}
+    .safety-flag{color:#ef4444;font-size:.8rem;font-weight:700}
+    #status{font-size:.75rem;color:#6b7280;margin-bottom:1rem}
+    .next-visit{background:#1e0d12;border:1px solid #be185d;border-radius:8px;padding:1rem;margin-bottom:1.5rem;font-size:.9rem}
+    label{font-size:.8rem;color:#9ca3af;margin-bottom:.1rem;display:block}
+    .checkbox-row{display:flex;align-items:center;gap:.5rem;font-size:.85rem}
+  </style>
+</head>
+<body>
+
+<h1>KindCare</h1>
+<div id="status">Loading...</div>
+
+<div id="next-visit-area"></div>
+
+<div class="grid">
+  <div class="card"><div class="metric" id="m-mood">—</div><div class="label">Latest Mood</div></div>
+  <div class="card"><div class="metric" id="m-checkins">—</div><div class="label">Check-ins This Week</div></div>
+  <div class="card"><div class="metric" id="m-goals">—</div><div class="label">Active Goals</div></div>
+  <div class="card"><div class="metric" id="m-journal">—</div><div class="label">Journal Entries</div></div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Daily Check-in</h2>
+    <form id="checkin-form">
+      <label>Mood</label>
+      <select id="ci-mood">
+        <option value="great">Great</option>
+        <option value="good">Good</option>
+        <option value="okay" selected>Okay</option>
+        <option value="low">Low</option>
+        <option value="struggling">Struggling</option>
+      </select>
+      <label>Energy (1–10)</label>
+      <input id="ci-energy" type="number" min="1" max="10" placeholder="5" />
+      <label>Notes</label>
+      <input id="ci-notes" type="text" placeholder="Anything to add?" />
+      <div class="checkbox-row">
+        <input id="ci-safety" type="checkbox" checked />
+        <label for="ci-safety">I feel safe</label>
+      </div>
+      <button type="submit">Log Check-in</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Goals</h2>
+    <ul class="list" id="goal-list"></ul>
+    <form id="goal-form" style="margin-top:.75rem">
+      <input id="goal-title" type="text" placeholder="Goal title" />
+      <textarea id="goal-desc" rows="2" placeholder="Description (optional)"></textarea>
+      <button type="submit">Add Goal</button>
+    </form>
+  </div>
+
+  <div class="card" style="grid-column:span 2">
+    <h2>Recent Check-ins</h2>
+    <ul class="list" id="checkin-list"></ul>
+  </div>
+</div>
+
+<div class="card" style="margin-top:1rem">
+  <h2>Journal</h2>
+  <form id="journal-form" style="display:flex;gap:.5rem;margin-bottom:.75rem">
+    <input id="journal-title" type="text" placeholder="Title" style="flex:1" />
+    <textarea id="journal-content" rows="2" style="flex:2" placeholder="Write something..."></textarea>
+    <button type="submit" style="align-self:flex-end">Add</button>
+  </form>
+  <ul class="list" id="journal-list"></ul>
+</div>
+
+<script>
+const API='/api';
+
+async function load() {
+  const [health, checkins, goals, journal] = await Promise.all([
+    fetch(`${API}/health`).then(r=>r.json()).catch(()=>null),
+    fetch(`${API}/check-ins?limit=20`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/goals`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/journal?limit=10`).then(r=>r.json()).catch(()=>[]),
+  ]);
+
+  const nv = await fetch(`${API}/next-visit`).then(r=>r.json()).catch(()=>null);
+  const nvArea = document.getElementById('next-visit-area');
+  if (nv && nv.scheduled_for) {
+    nvArea.innerHTML = `<div class="next-visit">Next visit: <strong>${nv.scheduled_for?.slice(0,16)||'TBC'}</strong>${nv.carer_name?' with '+nv.carer_name:''}</div>`;
+  } else { nvArea.innerHTML=''; }
+
+  if (health) document.getElementById('status').textContent = `KindCare ok`;
+
+  const ci = checkins[0];
+  document.getElementById('m-mood').textContent = ci?.mood || '—';
+  document.getElementById('m-checkins').textContent = checkins.length;
+  document.getElementById('m-goals').textContent = goals.filter(g=>g.status==='active').length;
+  document.getElementById('m-journal').textContent = journal.length;
+
+  const ciList = document.getElementById('checkin-list');
+  ciList.innerHTML = checkins.slice(0,8).map(c=>`
+    <li>
+      <span><span class="tag">${c.mood}</span> energy: ${c.energy_level||'—'} ${c.notes?'— '+c.notes:''}</span>
+      <span class="${c.safety_ok?'safety-ok':'safety-flag'}">${c.safety_ok?'✓ safe':'⚠ flag'}</span>
+    </li>`).join('') || '<li style="color:#6b7280">No check-ins yet.</li>';
+
+  const gList = document.getElementById('goal-list');
+  gList.innerHTML = goals.map(g=>`<li><span>${g.title}</span><span class="tag">${g.status}</span></li>`).join('') || '<li style="color:#6b7280">No goals yet.</li>';
+
+  const jList = document.getElementById('journal-list');
+  jList.innerHTML = journal.map(j=>`<li><div style="display:flex;justify-content:space-between"><strong>${j.title||'Note'}</strong><span style="color:#6b7280;font-size:.7rem">${j.created_at?.slice(0,10)||''}</span></div><div style="color:#9ca3af;margin-top:.2rem">${j.content?.slice(0,120)||''}</div></li>`).join('') || '<li style="color:#6b7280">Empty.</li>';
+}
+
+document.getElementById('checkin-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const mood = document.getElementById('ci-mood').value;
+  const energy_level = parseInt(document.getElementById('ci-energy').value)||null;
+  const notes = document.getElementById('ci-notes').value.trim();
+  const safety_ok = document.getElementById('ci-safety').checked;
+  await fetch(`${API}/check-ins`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mood,energy_level,notes,safety_ok})});
+  document.getElementById('ci-notes').value=''; load();
+});
+
+document.getElementById('goal-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const title = document.getElementById('goal-title').value.trim();
+  const description = document.getElementById('goal-desc').value.trim();
+  if (!title) return;
+  await fetch(`${API}/goals`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,description})});
+  document.getElementById('goal-title').value=''; document.getElementById('goal-desc').value='';  load();
+});
+
+document.getElementById('journal-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const title = document.getElementById('journal-title').value.trim();
+  const content = document.getElementById('journal-content').value.trim();
+  if (!content) return;
+  await fetch(`${API}/journal`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,content})});
+  document.getElementById('journal-title').value=''; document.getElementById('journal-content').value=''; load();
+});
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

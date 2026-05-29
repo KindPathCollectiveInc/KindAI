@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KindBiz</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0d0d1a;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:1.5rem}
+    h1{font-size:1.4rem;font-weight:600;color:#2dd4bf;margin-bottom:1.5rem;letter-spacing:.03em}
+    h2{font-size:.85rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;margin-bottom:.75rem}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-bottom:1.5rem}
+    .card{background:#0d1e1e;border:1px solid #1a3835;border-radius:10px;padding:1.2rem}
+    .metric{font-size:2rem;font-weight:700;color:#2dd4bf}
+    .label{font-size:.75rem;color:#6b7280;margin-top:.25rem}
+    form{display:flex;flex-direction:column;gap:.5rem}
+    select,input,textarea{background:#1a2e2c;border:1px solid #2a4e4a;border-radius:6px;color:#e0e0e0;padding:.5rem .75rem;font-size:.85rem;width:100%}
+    button{background:#0d9488;color:#fff;border:none;border-radius:6px;padding:.55rem 1.2rem;cursor:pointer;font-size:.85rem;font-weight:600}
+    button:hover{background:#0f766e}
+    button.sm{padding:.25rem .5rem;font-size:.72rem}
+    .list{list-style:none;display:flex;flex-direction:column;gap:.35rem;max-height:280px;overflow-y:auto}
+    .list li{background:#0d1e1e;border:1px solid #1a3835;border-radius:6px;padding:.45rem .75rem;font-size:.8rem;display:flex;justify-content:space-between;align-items:center}
+    .tag{background:#134e4a;color:#2dd4bf;border-radius:4px;padding:.1rem .4rem;font-size:.7rem}
+    .overdue{color:#ef4444;font-weight:700}
+    #status{font-size:.75rem;color:#6b7280;margin-bottom:1rem}
+    .summary-row{display:flex;gap:2rem;margin:.75rem 0;font-size:.9rem}
+    .summary-row .pos{color:#4ade80} .summary-row .neg{color:#f87171}
+  </style>
+</head>
+<body>
+
+<h1>KindBiz</h1>
+<div id="status">Loading...</div>
+
+<div class="grid">
+  <div class="card"><div class="metric" id="m-income">$—</div><div class="label">Income (30d)</div></div>
+  <div class="card"><div class="metric" id="m-expenses" style="color:#f87171">$—</div><div class="label">Expenses (30d)</div></div>
+  <div class="card"><div class="metric" id="m-invoices">—</div><div class="label">Unpaid Invoices</div></div>
+  <div class="card"><div class="metric" id="m-pipeline">$—</div><div class="label">Pipeline Value</div></div>
+</div>
+
+<div class="grid">
+  <div class="card" style="grid-column:span 2">
+    <h2>Invoices</h2>
+    <ul class="list" id="invoice-list"></ul>
+    <form id="invoice-form" style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap">
+      <select id="inv-contact" style="flex:2;min-width:140px"></select>
+      <input id="inv-amount" type="number" step="0.01" placeholder="Amount" style="flex:1;min-width:80px" />
+      <input id="inv-due" type="date" style="flex:1;min-width:100px" />
+      <button type="submit" style="flex:none">Create Invoice</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Contacts</h2>
+    <ul class="list" id="contact-list"></ul>
+    <form id="contact-form" style="margin-top:.75rem">
+      <input id="c-name" type="text" placeholder="Name" />
+      <input id="c-email" type="email" placeholder="Email" />
+      <input id="c-company" type="text" placeholder="Company (optional)" />
+      <button type="submit">Add Contact</button>
+    </form>
+  </div>
+</div>
+
+<div class="grid" style="margin-top:1rem">
+  <div class="card" style="grid-column:span 2">
+    <h2>Transactions</h2>
+    <ul class="list" id="transaction-list"></ul>
+    <form id="transaction-form" style="margin-top:.75rem;display:flex;gap:.5rem;flex-wrap:wrap">
+      <select id="tx-type" style="flex:1;min-width:80px">
+        <option value="income">Income</option>
+        <option value="expense">Expense</option>
+      </select>
+      <input id="tx-desc" type="text" placeholder="Description" style="flex:2;min-width:120px" />
+      <input id="tx-amount" type="number" step="0.01" placeholder="Amount" style="flex:1;min-width:80px" />
+      <button type="submit" style="flex:none">Log</button>
+    </form>
+  </div>
+</div>
+
+<script>
+const API='/api';
+
+async function load() {
+  const [health, invoices, contacts, transactions] = await Promise.all([
+    fetch(`${API}/health`).then(r=>r.json()).catch(()=>null),
+    fetch(`${API}/invoices`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/contacts`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/transactions`).then(r=>r.json()).catch(()=>[]),
+  ]);
+
+  const summary = await fetch(`${API}/transactions/summary`).then(r=>r.json()).catch(()=>({}));
+
+  document.getElementById('m-income').textContent = `$${(summary.income||0).toFixed(0)}`;
+  document.getElementById('m-expenses').textContent = `$${(summary.expenses||0).toFixed(0)}`;
+
+  const unpaid = invoices.filter(i=>i.status!=='paid');
+  document.getElementById('m-invoices').textContent = unpaid.length;
+
+  const today = new Date().toISOString().slice(0,10);
+  const iList = document.getElementById('invoice-list');
+  iList.innerHTML = invoices.slice(0,10).map(i=>`
+    <li>
+      <span class="${i.status!=='paid'&&i.due_date&&i.due_date<today?'overdue':''}">${i.invoice_number||'INV'} <small>${i.due_date||''}</small> <strong>$${parseFloat(i.amount||0).toFixed(2)}</strong></span>
+      <span style="display:flex;gap:.3rem;align-items:center">
+        <span class="tag" style="${i.status==='paid'?'background:#14532d;color:#4ade80':''}">${i.status}</span>
+        ${i.status!=='paid'?`<button class="sm" onclick="markPaid(${i.id})">Mark Paid</button>`:''}
+      </span>
+    </li>`).join('') || '<li style="color:#6b7280">No invoices.</li>';
+
+  // Populate contact select for invoices
+  const sel = document.getElementById('inv-contact');
+  sel.innerHTML = contacts.map(c=>`<option value="${c.id}">${c.name}${c.company?' ('+c.company+')':''}</option>`).join('') || '<option>— add a contact first —</option>';
+
+  const cList = document.getElementById('contact-list');
+  cList.innerHTML = contacts.map(c=>`<li><span><strong>${c.name}</strong>${c.company?' — '+c.company:''}</span><span style="color:#6b7280;font-size:.72rem">${c.email||''}</span></li>`).join('') || '<li style="color:#6b7280">No contacts.</li>';
+
+  const txList = document.getElementById('transaction-list');
+  txList.innerHTML = transactions.slice(0,12).map(t=>`
+    <li>
+      <span>${t.description||'—'}</span>
+      <span class="${t.type==='income'?'pos':'neg'}">${t.type==='income'?'+':'-'}$${parseFloat(t.amount||0).toFixed(2)}</span>
+    </li>`).join('') || '<li style="color:#6b7280">No transactions.</li>';
+}
+
+async function markPaid(id) {
+  await fetch(`${API}/invoices/${id}/paid`,{method:'POST'});
+  load();
+}
+
+document.getElementById('invoice-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const contact_id=parseInt(document.getElementById('inv-contact').value)||null;
+  const amount=parseFloat(document.getElementById('inv-amount').value)||0;
+  const due_date=document.getElementById('inv-due').value||null;
+  if (!amount) return;
+  await fetch(`${API}/invoices`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contact_id,amount,due_date})});
+  document.getElementById('inv-amount').value=''; load();
+});
+
+document.getElementById('contact-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name=document.getElementById('c-name').value.trim();
+  const email=document.getElementById('c-email').value.trim();
+  const company=document.getElementById('c-company').value.trim();
+  if (!name) return;
+  await fetch(`${API}/contacts`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,company})});
+  document.getElementById('c-name').value=''; document.getElementById('c-email').value=''; document.getElementById('c-company').value=''; load();
+});
+
+document.getElementById('transaction-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const transaction_type=document.getElementById('tx-type').value;
+  const description=document.getElementById('tx-desc').value.trim();
+  const amount=parseFloat(document.getElementById('tx-amount').value)||0;
+  if (!amount) return;
+  await fetch(`${API}/transactions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transaction_type,description,amount})});
+  document.getElementById('tx-desc').value=''; document.getElementById('tx-amount').value=''; load();
+});
+
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

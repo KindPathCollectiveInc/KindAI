@@ -1,0 +1,50 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Warm, calm, non-clinical palette per brand brief */
+  --color-sand: #fbf9f4;
+  --color-sand-100: #f5f1e8;
+  --color-sand-200: #ece5d5;
+
+  --color-forest: #33513a;
+  --color-forest-50: #eef2ee;
+  --color-forest-100: #d9e2da;
+  --color-forest-600: #2a4330;
+  --color-forest-700: #21351a;
+
+  --color-clay: #efd9cc;
+  --color-terracotta: #7a3f26;
+
+  --color-sage: #8ea77c;
+  --color-sage-50: #eef3e9;
+  --color-sage-700: #4f6a41;
+
+  --color-slate: #6b7280;
+  --color-slate-50: #f4f5f6;
+  --color-slate-200: #e2e4e7;
+
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-sand);
+  color: #24261f;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}

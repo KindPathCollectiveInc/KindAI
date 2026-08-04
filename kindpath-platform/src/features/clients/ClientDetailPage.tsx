@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/AuthContext';
 import { ShareTokenPanel } from '@/features/share/ShareTokenPanel';
+import { SpecialistPlansPanel } from '@/features/specialist-plans/SpecialistPlansPanel';
+import { RequestDeletionButton } from '@/features/deletion-requests/RequestDeletionButton';
 
 const kindLabel: Record<string, string> = {
   note: 'Case note',
@@ -78,6 +80,12 @@ export function ClientDetailPage() {
               <Button variant="secondary">Edit details</Button>
             </Link>
           )}
+
+          {profile?.role === 'admin' && (
+            <div className="mt-4 border-t border-sand-100 pt-3">
+              <RequestDeletionButton tableName="clients" recordId={client.id} />
+            </div>
+          )}
         </Card>
 
         {(client.care_plan || client.routines || client.communication_preferences || client.goals) && (
@@ -88,6 +96,8 @@ export function ClientDetailPage() {
             <SectionText label="Goals" value={client.goals} />
           </Card>
         )}
+
+        <SpecialistPlansPanel clientId={client.id} />
 
         {canEdit && <ShareTokenPanel clientId={client.id} />}
       </div>

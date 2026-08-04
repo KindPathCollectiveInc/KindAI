@@ -96,10 +96,15 @@ everyone else's role.
 ## What's built vs. what's roadmap
 
 The brief specified 11 modules, in a deliberate build order. This pass
-delivers the first milestone plus the additional compliance modules
-requested during scoping (incidents, risk register, and the
-specialist-gated modules) — everything else has its schema in place
-(so the next pass is additive, not a redesign) but no UI yet.
+delivers the first milestone plus the compliance/governance modules
+that came out of extended scoping discussion with KindPath — incidents,
+risk register, the specialist plan taxonomy with its operational/
+formulation access split, access grants, mandatory risk-tiered review,
+staged escalation, and the deletion-request gate all have working UI.
+The remaining brief modules (roster, calendar, team messages, documents
+approval workflow, finances, the broader consent register, chemical/
+complaints registers, service agreements) have their schema in place —
+so the next pass is additive, not a redesign — but no UI yet.
 
 | # | Module | Status |
 |---|---|---|
@@ -117,10 +122,11 @@ specialist-gated modules) — everything else has its schema in place
 | — | Reportable Incidents (NDIS/WHS/security) | **Built** — added during scoping |
 | — | Risk Register | **Built** — added during scoping |
 | — | Chemical register, complaints register, service agreements | Schema built; no UI yet |
-| — | Specialist plan taxonomy (BSP, Client Risk Profile, Health Care Plan, Epilepsy Management, Medication Management, S8/PRN, chewing & swallowing, diet, movement, home/equipment) | Schema built (`plan_types`, `specialist_plans`, `specialist_plan_formulations`) with the operational/formulation access split and specialist-engagement sign-off gating; no UI yet — see `SECURITY.md` |
-| — | `access_grants` — justified, scoped, revocable elevation to formulation-layer access | Schema built; no UI yet |
-| — | Mandatory risk-tiered plan review (with participant/advocate voice, cross-service attendance, staged escalation to CEO/President) | Schema built (`specialist_plan_risk_ratings`, `review_cadence_rules`, `plan_reviews`, `review_participants`, `escalations`, `escalation_updates`); no UI yet — this is the mechanism KindPath specifically asked for to prevent "identity lock", see `SECURITY.md` |
-| — | Deletion-request workflow (CEO/President-gated, with a grace-window self-retract for noise) | **Built and enforced at the RLS level** — no admin DELETE exists on any substantial table; UI for raising/deciding a request not yet built, but the gate itself is live the moment a Supabase project runs these migrations |
+| — | Specialist plan taxonomy (BSP, Client Risk Profile, Health Care Plan, Epilepsy Management, Medication Management, S8/PRN, chewing & swallowing, diet, movement, home/equipment) | **Built** — create/view a plan from the Client Hub, operational summary editable by care coordinators, formulation layer editable by the engaged specialist/admin with graceful "no access" degradation |
+| — | `access_grants` — justified, scoped, revocable elevation to formulation-layer access | **Built** — panel on each plan's page to grant/revoke with a required justification |
+| — | Mandatory risk-tiered plan review (participant/advocate voice, cross-service attendance, staged escalation to CEO/President) | **Built** — risk rating with suggested/override history, schedule and record a review's outcome, split participant-voice/clinical-discussion attendance (internal + external stakeholders), overdue reviews surfaced on the dashboard |
+| — | Staged escalations (raised → groundwork → risk/compliance review → CEO reviewed → resolved) | **Built** — raise, assign owners (risk & compliance / participant outcomes / CEO), advance stage, append-only update trail |
+| — | Deletion-request workflow (CEO/President-gated, with a grace-window self-retract for noise) | **Built** — a decision queue page, a reusable "Request deletion" action (wired into the Client Hub as the flagship example), and role/flag management (treasurer, risk & compliance, participant outcomes, CEO/President escalation point) on each person's People page |
 
 Explicitly **out of scope** for this build, per the original brief:
 participant funds/trust account management (legislated, needs separate

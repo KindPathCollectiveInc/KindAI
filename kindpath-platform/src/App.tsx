@@ -19,6 +19,11 @@ import { ReviewDetailPage } from '@/features/plan-reviews/ReviewDetailPage';
 import { EscalationsPage } from '@/features/escalations/EscalationsPage';
 import { EscalationDetailPage } from '@/features/escalations/EscalationDetailPage';
 import { DeletionRequestsPage } from '@/features/deletion-requests/DeletionRequestsPage';
+import { RosterPage } from '@/features/roster/RosterPage';
+import { OrgDocumentsPage } from '@/features/documents/OrgDocumentsPage';
+import { MessagesPage } from '@/features/messages/MessagesPage';
+import { CalendarPage } from '@/features/calendar/CalendarPage';
+import { FinancesPage } from '@/features/finances/FinancesPage';
 
 function Protected({ children }: { children: ReactNode }) {
   return (
@@ -155,6 +160,46 @@ export default function App() {
             element={
               <Protected>
                 <DeletionRequestsPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/roster"
+            element={
+              <Protected>
+                <RosterPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/documents"
+            element={
+              <Protected>
+                <OrgDocumentsPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/messages"
+            element={
+              <Protected>
+                <MessagesPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/calendar"
+            element={
+              <Protected>
+                <CalendarPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/finances"
+            element={
+              <Protected>
+                <FinancesPage />
               </Protected>
             }
           />

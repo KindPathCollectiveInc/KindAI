@@ -117,8 +117,8 @@ create policy complaints_register_update on public.complaints_register
     and public.has_role(array['admin', 'care_advocacy', 'committee'])
   );
 
-create policy complaints_register_delete on public.complaints_register
-  for delete using (organisation_id = public.current_org() and public.is_admin());
+-- No delete policy: a complaint record is substantial and goes through
+-- the deletion_requests gate (see 20260803000017_deletion_requests.sql).
 
 -- Service agreements: which funding source(s) a client's supports run
 -- under. "Various publicly and privately funded support services"

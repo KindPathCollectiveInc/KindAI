@@ -117,7 +117,10 @@ specialist-gated modules) — everything else has its schema in place
 | — | Reportable Incidents (NDIS/WHS/security) | **Built** — added during scoping |
 | — | Risk Register | **Built** — added during scoping |
 | — | Chemical register, complaints register, service agreements | Schema built; no UI yet |
-| — | Restrictive practices, clinical supervision, medication authorisation | Schema built with specialist-engagement sign-off gating; no UI yet — see `SECURITY.md` on why these are deliberately containers-and-plumbing, not clinical decision tools |
+| — | Specialist plan taxonomy (BSP, Client Risk Profile, Health Care Plan, Epilepsy Management, Medication Management, S8/PRN, chewing & swallowing, diet, movement, home/equipment) | Schema built (`plan_types`, `specialist_plans`, `specialist_plan_formulations`) with the operational/formulation access split and specialist-engagement sign-off gating; no UI yet — see `SECURITY.md` |
+| — | `access_grants` — justified, scoped, revocable elevation to formulation-layer access | Schema built; no UI yet |
+| — | Mandatory risk-tiered plan review (with participant/advocate voice, cross-service attendance, staged escalation to CEO/President) | Schema built (`specialist_plan_risk_ratings`, `review_cadence_rules`, `plan_reviews`, `review_participants`, `escalations`, `escalation_updates`); no UI yet — this is the mechanism KindPath specifically asked for to prevent "identity lock", see `SECURITY.md` |
+| — | Deletion-request workflow (CEO/President-gated, with a grace-window self-retract for noise) | **Built and enforced at the RLS level** — no admin DELETE exists on any substantial table; UI for raising/deciding a request not yet built, but the gate itself is live the moment a Supabase project runs these migrations |
 
 Explicitly **out of scope** for this build, per the original brief:
 participant funds/trust account management (legislated, needs separate

@@ -162,10 +162,23 @@ end;
 $$;
 
 -- set_organisation_id(): generic BEFORE INSERT trigger that forces the
--- organisation_id column to the caller's own org, ignoring any value the
--- client may have supplied. This is a defence-in-depth measure on top of
--- RLS: even a policy bug or a service-role script run without care cannot
--- accidentally cross-write tenant data through the normal insert path.
+-- organisation_id column to the caller's own org, ignoring any value an
+-- authenticated app user's client may have supplied. This is a
+-- defence-in-depth measure on top of RLS: a policy bug alone cannot let
+-- a logged-in user cross-write tenant data through the normal insert
+-- path, because this trigger overrides whatever organisation_id they sent.
+--
+-- That override only applies when there IS an authenticated user
+-- (auth.uid() is not null). A raw service-role/migration-time connection
+-- (seed.sql, `supabase db push`) has no auth.uid() at all — for that
+-- trusted context we pass the supplied organisation_id through
+-- unchanged, which is what lets seed.sql insert reference data
+-- (plan_types, review_cadence_rules) against a specific organisation
+-- before any user has ever logged in. The threat this trigger defends
+-- against is a logged-in end user manipulating their own client's
+-- request payload, not a trusted server-side script — so narrowing the
+-- override to "only when a real user session exists" preserves the
+-- security property without breaking seeding.
 create or replace function public.set_organisation_id()
 returns trigger
 language plpgsql
@@ -173,7 +186,9 @@ security definer
 set search_path = public
 as $$
 begin
-  new.organisation_id = public.current_org();
+  if auth.uid() is not null then
+    new.organisation_id = public.current_org();
+  end if;
   return new;
 end;
 $$;

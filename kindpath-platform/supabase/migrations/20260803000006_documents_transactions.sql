@@ -77,8 +77,8 @@ create policy documents_update on public.documents
     )
   );
 
-create policy documents_delete on public.documents
-  for delete using (organisation_id = public.current_org() and public.is_admin());
+-- No delete policy: documents are substantial records and go through
+-- the deletion_requests gate (see 20260803000017_deletion_requests.sql).
 
 -- Organisational finances only — explicitly out of scope for participant
 -- funds/trust accounts (see SECURITY.md / README roadmap). Restricted to
@@ -128,5 +128,5 @@ create policy transactions_insert on public.transactions
 create policy transactions_update on public.transactions
   for update using (organisation_id = public.current_org() and public.is_treasurer());
 
-create policy transactions_delete on public.transactions
-  for delete using (organisation_id = public.current_org() and public.is_admin());
+-- No delete policy: financial records are substantial and go through
+-- the deletion_requests gate (see 20260803000017_deletion_requests.sql).

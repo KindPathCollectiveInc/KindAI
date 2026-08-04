@@ -72,8 +72,8 @@ declare
     'profiles', 'clients', 'notes', 'shifts', 'tasks', 'events', 'messages',
     'documents', 'transactions', 'onboarding_records', 'consent_records',
     'share_tokens', 'reportable_incidents', 'risk_register',
-    'specialist_engagements', 'restrictive_practices',
-    'clinical_supervision_sessions', 'medication_authorisations',
+    'specialist_engagements', 'plan_types', 'specialist_plans',
+    'specialist_plan_formulations', 'clinical_supervision_sessions',
     'chemical_register', 'complaints_register', 'service_agreements'
   ];
   t text;

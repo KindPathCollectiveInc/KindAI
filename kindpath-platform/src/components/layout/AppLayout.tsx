@@ -13,10 +13,15 @@ interface NavItem {
 const navItems: NavItem[] = [
   { to: '/', label: 'Dashboard' },
   { to: '/clients', label: 'Clients' },
+  { to: '/roster', label: 'Roster' },
+  { to: '/calendar', label: 'Calendar' },
+  { to: '/messages', label: 'Messages' },
+  { to: '/documents', label: 'Documents' },
   { to: '/people', label: 'People' },
   { to: '/incidents', label: 'Incidents' },
   { to: '/risk-register', label: 'Risk register', allow: ['admin', 'care_advocacy', 'committee'] },
   { to: '/escalations', label: 'Escalations', allow: ['admin', 'care_advocacy', 'committee'] },
+  { to: '/finances', label: 'Finances', allow: ['admin', 'care_advocacy', 'committee'] },
   { to: '/deletion-requests', label: 'Deletion requests', allow: ['admin', 'care_advocacy', 'committee'] },
 ];
 

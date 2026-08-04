@@ -9,6 +9,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { ShareTokenPanel } from '@/features/share/ShareTokenPanel';
 import { SpecialistPlansPanel } from '@/features/specialist-plans/SpecialistPlansPanel';
 import { RequestDeletionButton } from '@/features/deletion-requests/RequestDeletionButton';
+import { DocumentsPanel } from '@/features/documents/DocumentsPanel';
 
 const kindLabel: Record<string, string> = {
   note: 'Case note',
@@ -98,6 +99,8 @@ export function ClientDetailPage() {
         )}
 
         <SpecialistPlansPanel clientId={client.id} />
+
+        <DocumentsPanel clientId={client.id} />
 
         {canEdit && <ShareTokenPanel clientId={client.id} />}
       </div>

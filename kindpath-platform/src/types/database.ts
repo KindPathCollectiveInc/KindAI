@@ -140,6 +140,49 @@ export type Task = {
   updated_at: string;
 };
 
+export type Message = {
+  id: string;
+  organisation_id: string;
+  author_id: string;
+  date: string;
+  text: string;
+  created_at: string;
+};
+
+export type MessageTag = {
+  id: string;
+  organisation_id: string;
+  message_id: string;
+  client_id: string | null;
+  profile_id: string | null;
+  created_at: string;
+};
+
+export type EventVisibility = 'shared' | 'solo';
+
+export type Event = {
+  id: string;
+  organisation_id: string;
+  title: string;
+  description: string | null;
+  date: string;
+  start_time: string | null;
+  end_time: string | null;
+  visibility: EventVisibility;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EventTag = {
+  id: string;
+  organisation_id: string;
+  event_id: string;
+  client_id: string | null;
+  profile_id: string | null;
+  created_at: string;
+};
+
 export type DocumentRow = {
   id: string;
   organisation_id: string;
@@ -541,6 +584,29 @@ export type Database = {
       task_tags: TableDef<
         TaskTag,
         Partial<Omit<TaskTag, 'id' | 'organisation_id' | 'created_at'>> & { task_id: string }
+      >;
+      messages: TableDef<
+        Message,
+        Partial<Omit<Message, 'id' | 'organisation_id' | 'created_at'>> & {
+          author_id: string;
+          text: string;
+        }
+      >;
+      message_tags: TableDef<
+        MessageTag,
+        Partial<Omit<MessageTag, 'id' | 'organisation_id' | 'created_at'>> & { message_id: string }
+      >;
+      events: TableDef<
+        Event,
+        Partial<Omit<Event, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>> & {
+          title: string;
+          date: string;
+          owner_id: string;
+        }
+      >;
+      event_tags: TableDef<
+        EventTag,
+        Partial<Omit<EventTag, 'id' | 'organisation_id' | 'created_at'>> & { event_id: string }
       >;
       documents: TableDef<
         DocumentRow,

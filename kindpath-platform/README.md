@@ -95,28 +95,24 @@ everyone else's role.
 
 ## What's built vs. what's roadmap
 
-The brief specified 11 modules, in a deliberate build order. This pass
-delivers the first milestone plus the compliance/governance modules
-that came out of extended scoping discussion with KindPath — incidents,
-risk register, the specialist plan taxonomy with its operational/
-formulation access split, access grants, mandatory risk-tiered review,
-staged escalation, and the deletion-request gate all have working UI.
-The remaining brief modules (roster, calendar, team messages, documents
-approval workflow, finances, the broader consent register, chemical/
-complaints registers, service agreements) have their schema in place —
-so the next pass is additive, not a redesign — but no UI yet.
+The brief specified 11 modules, in a deliberate build order. Between
+the first milestone, the compliance/governance modules that came out of
+extended scoping discussion with KindPath, and this pass, every brief
+module except the AI Daily Briefing and the broader consent/chemical/
+complaints/service-agreement registers now has working UI, not just
+schema.
 
 | # | Module | Status |
 |---|---|---|
 | 1 | Auth + org setup + Clients CRUD + Client Hub activity feed | **Built** |
 | 2 | People + WWCC/NDIS Worker Screening expiry tracking + dashboard alerts | **Built** |
-| 3 | Roster (shift scheduling) | Schema built (`shifts`); no dedicated UI yet — shift rows exist and drive contractor compartmentalisation, but there's no roster management screen |
-| 4 | Onboarding/offboarding checklists | Schema + API built (`onboarding_records`); UI exists via the People → person detail checklist for wwcc/ndis_screening/orientation/etc |
+| 3 | Roster (shift scheduling) | **Built** — schedule a shift, upcoming/past views, a worker can mark their own shift complete |
+| 4 | Onboarding/offboarding checklists | **Built** — People → person detail checklist for wwcc/ndis_screening/orientation/etc |
 | 5 | Tasks with tagging + draft-email action | Schema built (`tasks`, `task_tags`); powers the Client Hub feed; no dedicated task board UI or draft-email action yet |
-| 6 | Calendar (shared + solo) | Schema built (`events`, `event_tags`); no UI yet |
-| 7 | Team Messages | Schema built (`messages`, `message_tags`); no UI yet |
-| 8 | Documents with approval workflow | Schema built (`documents`, storage bucket + policies); powers the Client Hub feed; no dedicated upload/approval UI yet |
-| 9 | Finances (org-level) | Schema built, treasurer-gated; no UI yet |
+| 6 | Calendar (shared + solo) | **Built** — add/view shared and solo events, upcoming + past |
+| 7 | Team Messages | **Built** — a simple shared noticeboard (tagging to a client/person exists in the API, not yet surfaced in the UI) |
+| 8 | Documents with approval workflow | **Built** — upload (client-linked from the Client Hub, or org-wide policies/induction packs), draft → pending approval → approved, BSP/Risk Plan caution banner |
+| 9 | Finances (org-level) | **Built** — treasurer-gated income/expense list + entry, income/expense/net summary, labelled everywhere as organisational funds only |
 | 10 | Consent & Sharing Register + Share Token + public Coordinated Summary | Share tokens + public route **built** (from the Client Hub); the broader consent register (`consent_records`) has schema only, no dedicated UI |
 | 11 | AI Daily Briefing (Anthropic API, server-side) | Not started — needs a server-side function (Supabase Edge Function), out of scope for a client-only pass |
 | — | Reportable Incidents (NDIS/WHS/security) | **Built** — added during scoping |

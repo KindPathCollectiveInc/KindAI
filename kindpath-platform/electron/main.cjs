@@ -41,15 +41,22 @@ const MIME_TYPES = {
 
 function startStaticServer() {
   return new Promise((resolve, reject) => {
+    const distRoot = path.resolve(DIST_DIR);
+
     const server = http.createServer((req, res) => {
       const requestedPath = decodeURIComponent((req.url || '/').split('?')[0]);
-      let filePath = path.join(DIST_DIR, requestedPath === '/' ? 'index.html' : requestedPath);
+      let filePath =
+        requestedPath === '/'
+          ? path.join(distRoot, 'index.html')
+          : path.resolve(distRoot, '.' + requestedPath);
 
-      // Any path without a real file on disk (shouldn't normally happen
-      // with HashRouter, since only "/" is ever requested server-side)
-      // falls back to index.html rather than 404ing.
-      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-        filePath = path.join(DIST_DIR, 'index.html');
+      // Reject anything that resolves outside dist/ (e.g. "/../../etc/passwd")
+      // and any path without a real file on disk (shouldn't normally happen
+      // with HashRouter, since only "/" is ever requested server-side) —
+      // both fall back to index.html rather than 404ing.
+      const isInsideDist = filePath === distRoot || filePath.startsWith(distRoot + path.sep);
+      if (!isInsideDist || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+        filePath = path.join(distRoot, 'index.html');
       }
 
       const ext = path.extname(filePath);

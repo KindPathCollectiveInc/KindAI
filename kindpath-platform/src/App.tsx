@@ -13,6 +13,12 @@ import { PersonDetailPage } from '@/features/people/PersonDetailPage';
 import { IncidentsPage } from '@/features/incidents/IncidentsPage';
 import { RiskRegisterPage } from '@/features/risk-register/RiskRegisterPage';
 import { CoordinatedSummaryPage } from '@/features/share/CoordinatedSummaryPage';
+import { SpecialistPlanFormPage } from '@/features/specialist-plans/SpecialistPlanFormPage';
+import { SpecialistPlanDetailPage } from '@/features/specialist-plans/SpecialistPlanDetailPage';
+import { ReviewDetailPage } from '@/features/plan-reviews/ReviewDetailPage';
+import { EscalationsPage } from '@/features/escalations/EscalationsPage';
+import { EscalationDetailPage } from '@/features/escalations/EscalationDetailPage';
+import { DeletionRequestsPage } from '@/features/deletion-requests/DeletionRequestsPage';
 
 function Protected({ children }: { children: ReactNode }) {
   return (
@@ -101,6 +107,54 @@ export default function App() {
                 <RoleGuard allow={['admin', 'care_advocacy', 'committee']}>
                   <RiskRegisterPage />
                 </RoleGuard>
+              </Protected>
+            }
+          />
+          <Route
+            path="/clients/:clientId/plans/new"
+            element={
+              <Protected>
+                <SpecialistPlanFormPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/plans/:id"
+            element={
+              <Protected>
+                <SpecialistPlanDetailPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/reviews/:id"
+            element={
+              <Protected>
+                <ReviewDetailPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/escalations"
+            element={
+              <Protected>
+                <EscalationsPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/escalations/:id"
+            element={
+              <Protected>
+                <EscalationDetailPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/deletion-requests"
+            element={
+              <Protected>
+                <DeletionRequestsPage />
               </Protected>
             }
           />

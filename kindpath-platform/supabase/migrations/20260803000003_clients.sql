@@ -60,5 +60,8 @@ create policy clients_update on public.clients
     and public.has_role(array['admin', 'care_advocacy', 'committee'])
   );
 
-create policy clients_delete on public.clients
-  for delete using (organisation_id = public.current_org() and public.is_admin());
+-- No delete policy: a client record is exactly the "substantial" record
+-- that must go through the deletion_requests gate (see
+-- 20260803000017_deletion_requests.sql), not a raw admin DELETE — use
+-- clients.status = 'inactive' for the ordinary case of ending a
+-- participant's engagement.

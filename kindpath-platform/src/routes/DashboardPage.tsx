@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useAsync } from '@/hooks/useAsync';
 import { listExpiringScreenings, ONBOARDING_STEPS } from '@/features/people/api';
+import { listOverdueReviews } from '@/features/plan-reviews/api';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -8,6 +9,7 @@ import { useAuth } from '@/features/auth/AuthContext';
 export function DashboardPage() {
   const { profile } = useAuth();
   const { data: expiring, loading } = useAsync(listExpiringScreenings, []);
+  const { data: overdueReviews, loading: reviewsLoading } = useAsync(listOverdueReviews, []);
 
   return (
     <div>
@@ -50,6 +52,30 @@ export function DashboardPage() {
               </Link>
             );
           })}
+        </div>
+      </Card>
+
+      <Card className="mt-4">
+        <h2 className="mb-3 text-sm font-semibold text-forest-700">Overdue plan reviews</h2>
+
+        {reviewsLoading && <p className="text-sm text-slate">Checking…</p>}
+        {!reviewsLoading && (overdueReviews ?? []).length === 0 && (
+          <p className="text-sm text-slate">Nothing overdue. All clear.</p>
+        )}
+
+        <div className="space-y-2">
+          {(overdueReviews ?? []).map((item) => (
+            <Link
+              key={item.reviewId}
+              to={`/reviews/${item.reviewId}`}
+              className="flex items-center justify-between rounded-lg border border-sand-100 px-3 py-2 hover:border-forest"
+            >
+              <p className="text-sm text-forest-700">
+                Scheduled {new Date(item.scheduledDate).toLocaleDateString('en-AU')}
+              </p>
+              <Badge tone="terracotta">Overdue by {item.daysOverdue}d</Badge>
+            </Link>
+          ))}
         </div>
       </Card>
     </div>

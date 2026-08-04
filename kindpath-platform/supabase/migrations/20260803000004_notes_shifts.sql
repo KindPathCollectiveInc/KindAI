@@ -42,8 +42,20 @@ create policy notes_update on public.notes
     and (author_id = auth.uid() or public.has_role(array['admin', 'care_advocacy']))
   );
 
-create policy notes_delete on public.notes
-  for delete using (organisation_id = public.current_org() and public.is_admin());
+-- Two-tier deletion, per KindPath's retention policy: noise (an
+-- accidental duplicate note, created moments ago) can be self-retracted
+-- by its author without anyone's oversight; anything past that grace
+-- window is a substantial record and must go through the
+-- deletion_requests gate (see 20260803000017_deletion_requests.sql)
+-- instead — deliberately no blanket admin DELETE here even for older
+-- notes, so "nothing substantial is deleted without oversight" actually
+-- holds rather than being an admin-bypassable convention.
+create policy notes_delete_grace_window on public.notes
+  for delete using (
+    organisation_id = public.current_org()
+    and author_id = auth.uid()
+    and created_at > now() - interval '15 minutes'
+  );
 
 create type public.shift_status as enum ('scheduled', 'completed', 'cancelled');
 

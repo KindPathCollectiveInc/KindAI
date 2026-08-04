@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { OnboardingRecord, OnboardingStep, Profile } from '@/types/database';
+import type { OnboardingRecord, OnboardingStep, Profile, ProfileRole } from '@/types/database';
 
 export const ONBOARDING_STEPS: { key: OnboardingStep; label: string; hasExpiry: boolean }[] = [
   { key: 'wwcc', label: 'Working With Children Check', hasExpiry: true },
@@ -23,6 +23,25 @@ export async function getPerson(id: string) {
   if (error) throw error;
   return data as Profile;
 }
+
+export type ProfileFlags = Pick<
+  Profile,
+  'role' | 'is_treasurer' | 'handles_risk_compliance' | 'handles_participant_outcomes' | 'is_ceo_escalation_point'
+>;
+
+export async function updateProfileFlags(id: string, patch: Partial<ProfileFlags>) {
+  const { data, error } = await supabase.from('profiles').update(patch).eq('id', id).select().single();
+  if (error) throw error;
+  return data as Profile;
+}
+
+export const ROLE_LABELS: Record<ProfileRole, string> = {
+  admin: 'Admin',
+  care_advocacy: 'Care advocacy',
+  committee: 'Committee',
+  contractor: 'Contractor',
+  specialist: 'Specialist',
+};
 
 export async function listOnboardingRecords(personId?: string) {
   let query = supabase.from('onboarding_records').select('*');

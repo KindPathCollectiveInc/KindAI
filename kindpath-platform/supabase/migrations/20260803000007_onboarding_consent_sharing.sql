@@ -101,15 +101,23 @@ create policy consent_records_select on public.consent_records
     and public.has_role(array['admin', 'care_advocacy', 'committee'])
   );
 
-create policy consent_records_write on public.consent_records
-  for all using (
-    organisation_id = public.current_org()
-    and public.has_role(array['admin', 'care_advocacy'])
-  )
-  with check (
+create policy consent_records_insert on public.consent_records
+  for insert with check (
     organisation_id = public.current_org()
     and public.has_role(array['admin', 'care_advocacy'])
   );
+
+create policy consent_records_update on public.consent_records
+  for update using (
+    organisation_id = public.current_org()
+    and public.has_role(array['admin', 'care_advocacy'])
+  );
+
+-- No delete policy: who a client's information may be shared with is
+-- exactly the kind of substantial record that must go through the
+-- deletion_requests gate (see 20260803000017), not a raw admin DELETE —
+-- use consent_records.status = 'revoked' for the ordinary case of
+-- ending a sharing arrangement.
 
 -- Share tokens: the credential behind the public, unauthenticated
 -- Coordinated Summary route. The token value itself is only ever

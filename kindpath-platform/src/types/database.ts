@@ -70,6 +70,9 @@ export type Profile = {
   email: string;
   role: ProfileRole;
   is_treasurer: boolean;
+  handles_risk_compliance: boolean;
+  handles_participant_outcomes: boolean;
+  is_ceo_escalation_point: boolean;
   phone: string | null;
   active: boolean;
   created_at: string;
@@ -244,6 +247,245 @@ export type RiskRegisterEntry = {
   updated_at: string;
 };
 
+// --- Specialist plan governance model -------------------------------------
+
+export type Specialty =
+  | 'behaviour_support_practitioner'
+  | 'gp'
+  | 'psychiatrist'
+  | 'speech_pathologist'
+  | 'dietician'
+  | 'physiotherapist'
+  | 'occupational_therapist'
+  | 'clinical_supervisor'
+  | 'other';
+
+export type EngagementStatus = 'active' | 'ended';
+
+export type SpecialistEngagement = {
+  id: string;
+  organisation_id: string;
+  specialist_id: string;
+  client_id: string;
+  specialty: Specialty;
+  start_date: string;
+  end_date: string | null;
+  status: EngagementStatus;
+  referral_notes: string | null;
+  authorised_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlanType = {
+  id: string;
+  organisation_id: string;
+  code: string;
+  name: string;
+  responsible_specialty: Specialty;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SignoffStatus = 'draft' | 'pending_authorisation' | 'authorised' | 'declined' | 'expired';
+
+export type SpecialistPlan = {
+  id: string;
+  organisation_id: string;
+  client_id: string;
+  plan_type_id: string;
+  operational_summary: string;
+  details: Record<string, unknown>;
+  status: SignoffStatus;
+  authorised_by: string | null;
+  authorised_at: string | null;
+  expiry_date: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SpecialistPlanFormulation = {
+  id: string;
+  specialist_plan_id: string;
+  organisation_id: string;
+  formulation_detail: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AccessGrantScope = 'specific_plan' | 'plan_type' | 'client_formulation_all';
+
+export type AccessGrant = {
+  id: string;
+  organisation_id: string;
+  grantee_id: string;
+  scope_type: AccessGrantScope;
+  specialist_plan_id: string | null;
+  plan_type_id: string | null;
+  client_id: string | null;
+  justification: string;
+  approved_by: string;
+  granted_at: string;
+  review_date: string | null;
+  expires_at: string | null;
+  revoked: boolean;
+  revoked_at: string | null;
+  revoked_by: string | null;
+  created_at: string;
+};
+
+export type RiskTierSource = 'suggested' | 'clinical_override';
+
+export type SpecialistPlanRiskRating = {
+  id: string;
+  organisation_id: string;
+  specialist_plan_id: string;
+  tier: RiskLevel;
+  suggested_tier: RiskLevel | null;
+  source: RiskTierSource;
+  rationale: string | null;
+  incident_window_months: number;
+  effective_from: string;
+  set_by: string | null;
+  created_at: string;
+};
+
+export type ReviewCadenceRule = {
+  id: string;
+  organisation_id: string;
+  tier: RiskLevel;
+  interval_months: number;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReviewStatus = 'scheduled' | 'held' | 'overdue' | 'cancelled';
+export type ReviewOutcome = 'continue_unchanged' | 'reduce' | 'eliminate' | 'escalate';
+
+export type PlanReview = {
+  id: string;
+  organisation_id: string;
+  specialist_plan_id: string;
+  client_id: string;
+  scheduled_date: string;
+  held_date: string | null;
+  status: ReviewStatus;
+  outcome: ReviewOutcome | null;
+  participant_input: string | null;
+  resulting_risk_rating_id: string | null;
+  next_review_due: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlanReviewClinicalNote = {
+  id: string;
+  review_id: string;
+  organisation_id: string;
+  clinical_summary: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReviewParticipantType =
+  | 'specialist'
+  | 'support_coordinator'
+  | 'family'
+  | 'advocate'
+  | 'service_manager'
+  | 'community_member'
+  | 'worker_representative'
+  | 'participant'
+  | 'other';
+
+export type ReviewSegment = 'participant_voice' | 'clinical_discussion' | 'both';
+
+export type ReviewParticipant = {
+  id: string;
+  organisation_id: string;
+  review_id: string;
+  participant_type: ReviewParticipantType;
+  profile_id: string | null;
+  external_name: string | null;
+  external_relationship: string | null;
+  attended_segment: ReviewSegment;
+  notes: string | null;
+  created_at: string;
+};
+
+export type EscalationSource = 'plan_review' | 'incident' | 'risk_register' | 'other';
+export type EscalationStatus = 'raised' | 'groundwork' | 'risk_compliance_review' | 'ceo_reviewed' | 'resolved';
+
+export type Escalation = {
+  id: string;
+  organisation_id: string;
+  client_id: string | null;
+  source: EscalationSource;
+  source_review_id: string | null;
+  source_incident_id: string | null;
+  reason: string;
+  status: EscalationStatus;
+  raised_by: string;
+  risk_compliance_owner: string | null;
+  participant_outcomes_owner: string | null;
+  ceo_id: string | null;
+  resolution: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EscalationUpdate = {
+  id: string;
+  organisation_id: string;
+  escalation_id: string;
+  author_id: string;
+  stage: EscalationStatus;
+  note: string;
+  created_at: string;
+};
+
+export type DeletableTable =
+  | 'clients'
+  | 'notes'
+  | 'documents'
+  | 'transactions'
+  | 'reportable_incidents'
+  | 'risk_register'
+  | 'consent_records'
+  | 'specialist_engagements'
+  | 'specialist_plans'
+  | 'specialist_plan_formulations'
+  | 'specialist_plan_risk_ratings'
+  | 'plan_reviews'
+  | 'plan_review_clinical_notes'
+  | 'review_participants'
+  | 'escalations'
+  | 'escalation_updates'
+  | 'complaints_register';
+
+export type DeletionRequestStatus = 'pending' | 'approved' | 'declined';
+
+export type DeletionRequest = {
+  id: string;
+  organisation_id: string;
+  table_name: DeletableTable;
+  record_id: string;
+  reason: string;
+  requested_by: string;
+  status: DeletionRequestStatus;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  created_at: string;
+};
+
 // Mirrors postgrest-js's GenericTable shape (Row/Insert/Update/Relationships)
 // so supabase-js's type inference for insert/update/select resolves
 // correctly instead of collapsing to `never`. Relationships is left empty
@@ -343,6 +585,106 @@ export type Database = {
           impact: RiskLevel;
         }
       >;
+      specialist_engagements: TableDef<
+        SpecialistEngagement,
+        Partial<Omit<SpecialistEngagement, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>> & {
+          specialist_id: string;
+          client_id: string;
+          specialty: Specialty;
+        }
+      >;
+      plan_types: TableDef<
+        PlanType,
+        Partial<Omit<PlanType, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>> & {
+          code: string;
+          name: string;
+          responsible_specialty: Specialty;
+        }
+      >;
+      specialist_plans: TableDef<
+        SpecialistPlan,
+        Partial<Omit<SpecialistPlan, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>> & {
+          client_id: string;
+          plan_type_id: string;
+          operational_summary: string;
+        }
+      >;
+      specialist_plan_formulations: TableDef<
+        SpecialistPlanFormulation,
+        Partial<Omit<SpecialistPlanFormulation, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>> & {
+          specialist_plan_id: string;
+          formulation_detail: string;
+        }
+      >;
+      access_grants: TableDef<
+        AccessGrant,
+        Partial<Omit<AccessGrant, 'id' | 'organisation_id' | 'created_at' | 'granted_at'>> & {
+          grantee_id: string;
+          scope_type: AccessGrantScope;
+          justification: string;
+          approved_by: string;
+        }
+      >;
+      specialist_plan_risk_ratings: TableDef<
+        SpecialistPlanRiskRating,
+        Partial<Omit<SpecialistPlanRiskRating, 'id' | 'organisation_id' | 'created_at'>> & {
+          specialist_plan_id: string;
+          tier: RiskLevel;
+        }
+      >;
+      review_cadence_rules: TableDef<
+        ReviewCadenceRule,
+        Partial<Omit<ReviewCadenceRule, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>> & {
+          tier: RiskLevel;
+          interval_months: number;
+        }
+      >;
+      plan_reviews: TableDef<
+        PlanReview,
+        Partial<Omit<PlanReview, 'id' | 'organisation_id' | 'client_id' | 'created_at' | 'updated_at'>> & {
+          specialist_plan_id: string;
+          scheduled_date: string;
+        }
+      >;
+      plan_review_clinical_notes: TableDef<
+        PlanReviewClinicalNote,
+        Partial<Omit<PlanReviewClinicalNote, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>> & {
+          review_id: string;
+          clinical_summary: string;
+        }
+      >;
+      review_participants: TableDef<
+        ReviewParticipant,
+        Partial<Omit<ReviewParticipant, 'id' | 'organisation_id' | 'created_at'>> & {
+          review_id: string;
+          participant_type: ReviewParticipantType;
+        }
+      >;
+      escalations: TableDef<
+        Escalation,
+        Partial<Omit<Escalation, 'id' | 'organisation_id' | 'created_at' | 'updated_at'>> & {
+          reason: string;
+          raised_by: string;
+        }
+      >;
+      escalation_updates: TableDef<
+        EscalationUpdate,
+        Partial<Omit<EscalationUpdate, 'id' | 'organisation_id' | 'created_at'>> & {
+          escalation_id: string;
+          author_id: string;
+          stage: EscalationStatus;
+          note: string;
+        }
+      >;
+      deletion_requests: TableDef<
+        DeletionRequest,
+        Partial<Omit<DeletionRequest, 'id' | 'organisation_id' | 'created_at'>> & {
+          table_name: DeletableTable;
+          record_id: string;
+          reason: string;
+          requested_by: string;
+        }
+      >;
     };
     Views: Record<string, never>;
     Functions: {
@@ -355,6 +697,10 @@ export type Database = {
           goals?: string | null;
           care_plan?: string | null;
         } | null;
+      };
+      execute_approved_deletion: {
+        Args: { request_id: string };
+        Returns: undefined;
       };
     };
   };

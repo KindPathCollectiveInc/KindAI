@@ -5,9 +5,11 @@ import {
   getPerson,
   listOnboardingRecords,
   ONBOARDING_STEPS,
+  ROLE_LABELS,
+  updateProfileFlags,
   upsertOnboardingRecord,
 } from '@/features/people/api';
-import type { OnboardingRecord, OnboardingStep } from '@/types/database';
+import type { OnboardingRecord, OnboardingStep, Profile, ProfileRole } from '@/types/database';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -19,8 +21,9 @@ export function PersonDetailPage() {
   const canManage = profile && ['admin', 'care_advocacy'].includes(profile.role);
   const isSelf = profile?.id === id;
 
-  const { data: person, loading: personLoading } = useAsync(() => getPerson(id!), [id]);
+  const { data: person, loading: personLoading, reload: reloadPerson } = useAsync(() => getPerson(id!), [id]);
   const { data: records, reload } = useAsync(() => listOnboardingRecords(id), [id]);
+  const isAdmin = profile?.role === 'admin';
 
   if (personLoading) return <p className="text-sm text-slate">Loading…</p>;
   if (!person) return <p className="text-sm text-terracotta">Person not found, or you don't have access.</p>;
@@ -28,13 +31,15 @@ export function PersonDetailPage() {
   const recordFor = (step: OnboardingStep) => records?.find((r) => r.step === step);
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="mx-auto max-w-2xl space-y-4">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-forest-700">{person.full_name}</h1>
           <p className="text-sm capitalize text-slate">{person.role.replace('_', ' ')}</p>
         </div>
       </div>
+
+      {isAdmin && <RolesAndFlagsCard person={person} onSaved={reloadPerson} />}
 
       <Card>
         <h2 className="mb-4 text-sm font-semibold text-forest-700">Onboarding checklist</h2>
@@ -52,6 +57,76 @@ export function PersonDetailPage() {
         </div>
       </Card>
     </div>
+  );
+}
+
+function RolesAndFlagsCard({ person, onSaved }: { person: Profile; onSaved: () => void }) {
+  const [saving, setSaving] = useState(false);
+
+  async function setRole(role: ProfileRole) {
+    setSaving(true);
+    try {
+      await updateProfileFlags(person.id, { role });
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggle(key: 'is_treasurer' | 'handles_risk_compliance' | 'handles_participant_outcomes' | 'is_ceo_escalation_point') {
+    setSaving(true);
+    try {
+      await updateProfileFlags(person.id, { [key]: !person[key] });
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const flags: { key: 'is_treasurer' | 'handles_risk_compliance' | 'handles_participant_outcomes' | 'is_ceo_escalation_point'; label: string }[] = [
+    { key: 'is_treasurer', label: 'Treasurer (financial access)' },
+    { key: 'handles_risk_compliance', label: 'Handles risk & compliance escalations' },
+    { key: 'handles_participant_outcomes', label: 'Handles participant outcomes escalations' },
+    { key: 'is_ceo_escalation_point', label: 'CEO/President escalation point (final decision authority)' },
+  ];
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold text-forest-700">Role &amp; responsibilities</h2>
+      <label className="block text-sm font-medium text-forest-700">
+        Role
+        <select
+          value={person.role}
+          disabled={saving}
+          onChange={(e) => setRole(e.target.value as ProfileRole)}
+          className="mt-1 w-full rounded-lg border border-sand-200 px-3 py-2 text-sm"
+        >
+          {Object.entries(ROLE_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="mt-3 space-y-2">
+        {flags.map((f) => (
+          <label key={f.key} className="flex items-center gap-2 text-sm text-forest-700">
+            <input
+              type="checkbox"
+              checked={person[f.key]}
+              disabled={saving}
+              onChange={() => toggle(f.key)}
+            />
+            {f.label}
+          </label>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-slate">
+        These flags route escalations and deletion approvals — see SECURITY.md. More than one
+        person can hold each flag.
+      </p>
+    </Card>
   );
 }
 

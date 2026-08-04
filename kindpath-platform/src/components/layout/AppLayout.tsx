@@ -16,6 +16,8 @@ const navItems: NavItem[] = [
   { to: '/people', label: 'People' },
   { to: '/incidents', label: 'Incidents' },
   { to: '/risk-register', label: 'Risk register', allow: ['admin', 'care_advocacy', 'committee'] },
+  { to: '/escalations', label: 'Escalations', allow: ['admin', 'care_advocacy', 'committee'] },
+  { to: '/deletion-requests', label: 'Deletion requests', allow: ['admin', 'care_advocacy', 'committee'] },
 ];
 
 export function AppLayout({ children }: { children: ReactNode }) {

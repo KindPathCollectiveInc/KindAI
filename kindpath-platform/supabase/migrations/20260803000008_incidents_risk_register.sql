@@ -92,8 +92,9 @@ create policy reportable_incidents_update on public.reportable_incidents
     and public.has_role(array['admin', 'care_advocacy'])
   );
 
-create policy reportable_incidents_delete on public.reportable_incidents
-  for delete using (organisation_id = public.current_org() and public.is_admin());
+-- No delete policy: incident records are substantial and go through the
+-- deletion_requests gate (see 20260803000017_deletion_requests.sql) —
+-- an incident report should never simply disappear.
 
 -- Risk register: board/governance-level document.
 create type public.risk_category as enum (
@@ -141,9 +142,6 @@ create policy risk_register_select on public.risk_register
     and public.has_role(array['admin', 'care_advocacy', 'committee'])
   );
 
--- Note: insert/update only, deliberately not "for all" — delete is a
--- separate, more restrictive policy below (a permissive "for all" policy
--- would otherwise OR its USING clause into the delete check too).
 create policy risk_register_insert on public.risk_register
   for insert with check (
     organisation_id = public.current_org()
@@ -156,5 +154,6 @@ create policy risk_register_update on public.risk_register
     and public.has_role(array['admin', 'care_advocacy', 'committee'])
   );
 
-create policy risk_register_delete on public.risk_register
-  for delete using (organisation_id = public.current_org() and public.is_admin());
+-- No delete policy: risk register entries are substantial governance
+-- records and go through the deletion_requests gate (see
+-- 20260803000017_deletion_requests.sql) rather than a raw admin DELETE.

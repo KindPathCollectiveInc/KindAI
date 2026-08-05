@@ -30,7 +30,8 @@ KindStudy/
 ├── requirements.txt
 ├── static/
 │   └── index.html      — Study dashboard with due cards, sessions, courses
-└── kindstudy.db        — SQLite database (gitignored, runtime)
+└── data/
+    └── kindstudy.db    — SQLite database (gitignored, runtime)
 ```
 
 ## Operational Commands
@@ -49,10 +50,10 @@ KindStudy/
 - `GET/POST /api/flashcards`
 - `GET /api/flashcards/due` — cards due for review today (SM-2)
 - `POST /api/flashcards/{id}/review` — submit review quality (0–5), updates ease factor + interval
-- `GET/POST /api/reading-list`
-- `PUT /api/reading-list/{id}` — update status (to-read/reading/done)
-- `GET/POST /api/assignments`
-- `PUT /api/assignments/{id}` — update status/grade
+- `GET/POST /api/reading`
+- `PUT /api/reading/{id}/status` — update status (unread/reading/done)
+- `GET/POST /api/assignments` — filter by `course_id` and/or `status`; sorted by due date
+- `PUT /api/assignments/{id}` — update status/grade/content/due_date
 
 ## KCE Events Emitted
 

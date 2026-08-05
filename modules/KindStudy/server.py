@@ -19,7 +19,8 @@ Domains:
   - Assignments: essay/assignment drafting with AI Workbench support
 
 KMP endpoints: /api/module/identity + /api/health
-KCE events: study.session.started, study.session.completed, study.card.reviewed
+KCE events: kindstudy.session.started, kindstudy.session.completed,
+            kindstudy.flashcard.reviewed, kindstudy.assignment.completed
 
 Run: python server.py
 """
@@ -119,12 +120,17 @@ def init_db():
                 due_date    TEXT,
                 content     TEXT,
                 status      TEXT DEFAULT 'draft',
+                grade       TEXT,
                 word_count  INTEGER DEFAULT 0,
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL,
                 FOREIGN KEY (course_id) REFERENCES courses(id)
             );
         """)
+        try:
+            conn.execute("ALTER TABLE assignments ADD COLUMN grade TEXT")
+        except sqlite3.OperationalError:
+            pass
 
 init_db()
 
@@ -275,7 +281,7 @@ async def start_session(req: SessionRequest):
              session["started_at"], session["ended_at"], session["duration_min"],
              session["notes"], session["session_type"], session["created_at"]),
         )
-    await _emit_event("study.session.started", {"id": session["id"], "type": req.session_type})
+    await _emit_event("kindstudy.session.started", {"id": session["id"], "type": req.session_type})
     return session
 
 @app.post("/api/sessions/{session_id}/end")
@@ -292,7 +298,7 @@ async def end_session(session_id: str, body: dict = None):
             "UPDATE sessions SET ended_at=?, duration_min=?, notes=COALESCE(?, notes) WHERE id=?",
             (ended_at, duration_min, body.get("notes"), session_id),
         )
-    await _emit_event("study.session.completed", {"id": session_id, "duration_min": duration_min})
+    await _emit_event("kindstudy.session.completed", {"id": session_id, "duration_min": duration_min})
     return {"session_id": session_id, "ended_at": ended_at, "duration_min": duration_min}
 
 # ── Flashcards ────────────────────────────────────────────────────────────────
@@ -379,7 +385,7 @@ async def review_card(card_id: str, body: dict):
             "UPDATE flashcards SET ease_factor=?, interval_days=?, next_review=?, review_count=review_count+1, last_reviewed=? WHERE id=?",
             (ef, interval, next_review, date.today().isoformat(), card_id),
         )
-    await _emit_event("study.card.reviewed", {"id": card_id, "quality": quality, "next_review": next_review})
+    await _emit_event("kindstudy.flashcard.reviewed", {"id": card_id, "quality": quality, "next_review": next_review})
     return {"card_id": card_id, "next_review": next_review, "interval_days": interval}
 
 # ── Reading List ──────────────────────────────────────────────────────────────
@@ -429,6 +435,75 @@ async def update_reading_status(item_id: str, body: dict):
     with get_db() as conn:
         conn.execute("UPDATE reading_list SET status=? WHERE id=?", (status, item_id))
     return {"item_id": item_id, "status": status}
+
+# ── Assignments ───────────────────────────────────────────────────────────────
+
+class AssignmentRequest(BaseModel):
+    title: str
+    course_id: Optional[str] = None
+    due_date: Optional[str] = None
+    content: Optional[str] = None
+
+@app.get("/api/assignments")
+async def list_assignments(course_id: Optional[str] = None, status: Optional[str] = None):
+    query = "SELECT * FROM assignments WHERE 1=1"
+    params: List[Any] = []
+    if course_id:
+        query += " AND course_id=?"
+        params.append(course_id)
+    if status:
+        query += " AND status=?"
+        params.append(status)
+    query += " ORDER BY (due_date IS NULL), due_date"
+    with get_db() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
+
+@app.post("/api/assignments", status_code=201)
+async def create_assignment(req: AssignmentRequest):
+    now = datetime.utcnow().isoformat()
+    assignment = {
+        "id": str(uuid.uuid4()),
+        "course_id": req.course_id,
+        "title": req.title,
+        "due_date": req.due_date,
+        "content": req.content,
+        "status": "draft",
+        "grade": None,
+        "word_count": len((req.content or "").split()) if req.content else 0,
+        "created_at": now,
+        "updated_at": now,
+    }
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO assignments VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (assignment["id"], assignment["course_id"], assignment["title"],
+             assignment["due_date"], assignment["content"], assignment["status"],
+             assignment["grade"], assignment["word_count"], assignment["created_at"],
+             assignment["updated_at"]),
+        )
+    return assignment
+
+@app.put("/api/assignments/{assignment_id}")
+async def update_assignment(assignment_id: str, body: dict):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM assignments WHERE id=?", (assignment_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Assignment not found")
+
+        status = body.get("status", row["status"])
+        content = body.get("content", row["content"])
+        grade = body.get("grade", row["grade"])
+        due_date = body.get("due_date", row["due_date"])
+        word_count = len(content.split()) if content else 0
+
+        conn.execute(
+            "UPDATE assignments SET status=?, content=?, grade=?, due_date=?, word_count=?, updated_at=? WHERE id=?",
+            (status, content, grade, due_date, word_count, datetime.utcnow().isoformat(), assignment_id),
+        )
+    if status in ("done", "completed", "submitted") and row["status"] not in ("done", "completed", "submitted"):
+        await _emit_event("kindstudy.assignment.completed", {"id": assignment_id, "title": row["title"]})
+    return {"assignment_id": assignment_id, "status": status, "grade": grade}
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 

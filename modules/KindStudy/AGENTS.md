@@ -29,20 +29,26 @@ KindStudy/
 ├── server.py           — FastAPI app (KMP 1.0, SM-2 flashcard engine, CSU sync)
 ├── run.sh              — Start script
 ├── requirements.txt
-├── .env.example         — Copy to .env; holds CSU_ICS_FEED_URL
+├── .env.example         — Copy to .env; holds CSU_ICS_FEED_URLS, MS_CLIENT_ID
 ├── static/
 │   └── index.html      — Study dashboard with due cards, sessions, courses
 └── data/
-    └── kindstudy.db    — SQLite database (gitignored, runtime)
+    ├── kindstudy.db          — SQLite database (gitignored, runtime)
+    └── ms_token_cache.bin    — MSAL token cache (gitignored, runtime)
 ```
 
 ## Operational Commands
 
 - **Run**: `./run.sh`  or  `uvicorn server:app --port 7871`
 - **Health check**: `curl http://localhost:7871/api/health`
-- **CSU setup**: copy `.env.example` to `.env`, set `CSU_ICS_FEED_URL` to the
-  personal feed URL from Interact2 → Calendar → Subscribe. Auto-syncs every
+- **CSU setup**: copy `.env.example` to `.env`, set `CSU_ICS_FEED_URLS` to the
+  personal feed URL(s) from Interact2 → Calendar → Subscribe (space/comma
+  separated if more than one — see "CSU Feed Sync" below). Auto-syncs every
   6h in the background; trigger manually with `POST /api/csu/sync`.
+- **Outlook setup**: set `MS_CLIENT_ID` (Azure app registration, personal
+  Microsoft accounts, public client flows enabled). Then click "Connect
+  Outlook" on the dashboard — this is a device-code login the user completes
+  themselves in their own browser; the app never sees a password.
 
 ## KMP Endpoints
 
@@ -61,6 +67,9 @@ KindStudy/
 - `PUT /api/assignments/{id}` — update status/grade/content/due_date
 - `GET /api/csu/status` — last sync time, counts, error, whether configured
 - `POST /api/csu/sync` — trigger an immediate CSU calendar sync (400 if not configured)
+- `GET /api/outlook/status` — configured/logged-in/account/pending-login state
+- `POST /api/outlook/login/start` — begin device-code login (409 if already pending)
+- `GET /api/outlook/messages?limit=` — recent messages (requires login; 401 if not logged in)
 
 ## KCE Events Emitted
 
@@ -73,10 +82,14 @@ KindStudy/
 ## CSU Feed Sync
 
 - Source: the student's personal Interact2 (D2L Brightspace) calendar `.ics`
-  feed — the one sanctioned, documented export the LMS provides. Never
+  feed(s) — the one sanctioned, documented export the LMS provides. Never
   reverse-engineer the CSU mobile app's private backend to get this data.
-- The feed URL contains an auth token; it lives only in `.env`
-  (`CSU_ICS_FEED_URL`, gitignored) and is never logged or committed.
+- CSU's "All Subjects" feed does not reliably include every enrolled unit —
+  confirmed in practice, it was missing units entirely. `CSU_ICS_FEED_URLS`
+  accepts multiple space/comma-separated feed URLs (all-subjects plus a
+  per-unit `?feedOU=...` one for anything missing) and syncs all of them.
+- The feed URLs contain an auth token; they live only in `.env`
+  (`CSU_ICS_FEED_URLS`, gitignored) and are never logged or committed.
 - Interact2 mixes lecture/workshop/timetable noise into the same feed. Only
   `VEVENT`s whose `SUMMARY` ends in "Due" (D2L's own convention, e.g.
   "Assessment item 1 - Essay - Due") are imported as assignments — everything
@@ -86,6 +99,18 @@ KindStudy/
   `assignments.source` is `'csu'` for synced rows, `'manual'` for user-entered ones.
 - `LOCATION` on the event maps to a course name (auto-created if new);
   `DESCRIPTION` becomes the assignment's `content` (the task brief).
+
+## Outlook Integration
+
+- Auth: MSAL device-code flow against a personal-account Azure app
+  registration (`MS_CLIENT_ID`). The user completes login themselves in
+  their own browser — this app never handles a password, only the resulting
+  token cache (`data/ms_token_cache.bin`, gitignored).
+- Current scope is auth + raw message listing (`/api/outlook/messages`)
+  only. Auto-creating assignments from email content is deliberately NOT
+  implemented — unlike the CSU feed's reliable "- Due" marker, email due-date
+  mentions are free text, and any extraction logic needs to be designed
+  against real message samples first, not guessed at blind.
 
 ## SM-2 Algorithm Note
 
@@ -103,11 +128,12 @@ The flashcard review engine implements SM-2:
 
 ## Security Mandates
 
-- The only outbound call this module makes is to the user's own CSU
-  Interact2 calendar feed URL, which the user supplies via `.env`. No other
-  third-party APIs, no telemetry, no data leaves the machine otherwise.
-- The CSU feed token and any future integration credentials (e.g. Outlook)
-  live only in `.env` — never hardcode them, never commit them, never log
-  the feed URL or its response bodies.
+- Outbound calls are limited to: the user's own CSU Interact2 calendar
+  feed(s), and Microsoft Graph on the user's own behalf once they've
+  completed their own device-code login. No other third-party APIs, no
+  telemetry, no data leaves the machine otherwise.
+- All credentials (CSU feed tokens, MS_CLIENT_ID, the MSAL token cache)
+  live only in `.env` / `data/` — never hardcode them, never commit them,
+  never log a feed URL, token, or response body.
 - No PII in source control
 

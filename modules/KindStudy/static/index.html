@@ -133,6 +133,20 @@
       <button type="submit" style="flex:none">Add</button>
     </form>
   </div>
+
+  <!-- Outlook connection -->
+  <div class="card">
+    <h2>Outlook</h2>
+    <div id="outlook-idle">
+      <div class="label" id="outlook-status-text">Checking…</div>
+      <button class="sm" id="outlook-connect-btn" style="margin-top:.6rem;display:none">Connect Outlook</button>
+    </div>
+    <div id="outlook-pending" style="display:none">
+      <div class="label">Go to <strong id="outlook-uri"></strong> and enter this code:</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#a5b4fc;letter-spacing:.1em;margin:.5rem 0" id="outlook-code"></div>
+      <div class="label">Waiting for you to approve in your browser…</div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -170,7 +184,7 @@ function toggleBrief(id) {
 }
 
 async function load() {
-  const [health, courses, assignments, dueFlash, sessions, reading, csuStatus] = await Promise.all([
+  const [health, courses, assignments, dueFlash, sessions, reading, csuStatus, outlookStatus] = await Promise.all([
     fetch(`${API}/health`).then(r=>r.json()).catch(()=>null),
     fetch(`${API}/courses`).then(r=>r.json()).catch(()=>[]),
     fetch(`${API}/assignments`).then(r=>r.json()).catch(()=>[]),
@@ -178,7 +192,9 @@ async function load() {
     fetch(`${API}/sessions?limit=8`).then(r=>r.json()).catch(()=>[]),
     fetch(`${API}/reading`).then(r=>r.json()).catch(()=>[]),
     fetch(`${API}/csu/status`).then(r=>r.json()).catch(()=>null),
+    fetch(`${API}/outlook/status`).then(r=>r.json()).catch(()=>null),
   ]);
+  renderOutlook(outlookStatus);
 
   document.getElementById('status').textContent = health ? 'KindStudy ok' : 'KindStudy — backend unreachable';
 
@@ -308,6 +324,51 @@ async function reviewCard(quality) {
   renderNextCard();
   load();
 }
+
+function renderOutlook(s) {
+  const idle = document.getElementById('outlook-idle');
+  const pending = document.getElementById('outlook-pending');
+  const text = document.getElementById('outlook-status-text');
+  const btn = document.getElementById('outlook-connect-btn');
+
+  if (!s || !s.configured) {
+    idle.style.display = 'block'; pending.style.display = 'none';
+    text.textContent = 'Not configured (set MS_CLIENT_ID in .env)';
+    btn.style.display = 'none';
+    return;
+  }
+  if (s.pending) {
+    idle.style.display = 'none'; pending.style.display = 'block';
+    document.getElementById('outlook-uri').textContent = s.verification_uri || '';
+    document.getElementById('outlook-code').textContent = s.user_code || '';
+    return;
+  }
+  idle.style.display = 'block'; pending.style.display = 'none';
+  if (s.logged_in) {
+    text.textContent = `Connected as ${s.account}`;
+    btn.style.display = 'none';
+  } else {
+    const shortError = s.error ? s.error.split(' Trace ID:')[0] : null;
+    text.textContent = shortError ? `Not connected — ${shortError}` : 'Not connected';
+    btn.style.display = 'inline-block';
+  }
+}
+
+document.getElementById('outlook-connect-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('outlook-connect-btn');
+  btn.disabled = true;
+  try {
+    await fetch(`${API}/outlook/login/start`, {method:'POST'});
+  } catch (e) { /* status reflected on next poll */ }
+  btn.disabled = false;
+  load();
+  // Poll faster while a login is pending so the code/approval state updates promptly.
+  const poll = setInterval(async () => {
+    const s = await fetch(`${API}/outlook/status`).then(r=>r.json()).catch(()=>null);
+    renderOutlook(s);
+    if (!s || !s.pending) { clearInterval(poll); load(); }
+  }, 4000);
+});
 
 document.getElementById('csu-sync-btn').addEventListener('click', async () => {
   const btn = document.getElementById('csu-sync-btn');

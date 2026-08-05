@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
+import msal
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -72,9 +73,17 @@ CSU_ICS_FEED_URLS = _parse_feed_urls(
 CSU_SYNC_INTERVAL_HOURS = 6
 CSU_TZ = ZoneInfo("Australia/Sydney")
 
+# Outlook (Microsoft Graph) — personal Azure app registration, device-code
+# login. The user completes the actual login themselves in their own
+# browser; this app only ever holds a refresh token it obtains that way.
+MS_CLIENT_ID = os.environ.get("MS_CLIENT_ID")
+MS_AUTHORITY = "https://login.microsoftonline.com/consumers"
+MS_SCOPES = ["Mail.Read"]
+
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "kindstudy.db"
+MS_TOKEN_CACHE_PATH = DATA_DIR / "ms_token_cache.bin"
 
 # ── Database ──────────────────────────────────────────────────────────────────
 
@@ -674,6 +683,106 @@ async def _csu_sync_loop():
             _csu_sync_state["last_error"] = str(e)
             print(f"[KindStudy] CSU sync failed: {e}")
         await asyncio.sleep(CSU_SYNC_INTERVAL_HOURS * 3600)
+
+# ── Outlook (Microsoft Graph) ─────────────────────────────────────────────────
+# Device-code login: the user visits verification_uri themselves and enters
+# user_code in their own browser, signing in with their own Microsoft
+# account. This app never sees their password — only the refresh token MSAL
+# obtains afterwards, cached locally at MS_TOKEN_CACHE_PATH (gitignored).
+#
+# This module only handles auth + raw message listing so far. Auto-creating
+# assignments from email content is deliberately not implemented yet — unlike
+# the CSU calendar feed (which has a reliable structured "- Due" marker),
+# email due-date mentions are free text, and that needs designing against
+# real message samples rather than guessed at blind.
+
+_ms_login_state: Dict[str, Any] = {
+    "pending": False, "verification_uri": None, "user_code": None, "error": None,
+}
+
+def _get_msal_app():
+    cache = msal.SerializableTokenCache()
+    if MS_TOKEN_CACHE_PATH.exists():
+        cache.deserialize(MS_TOKEN_CACHE_PATH.read_text())
+    app_ = msal.PublicClientApplication(MS_CLIENT_ID, authority=MS_AUTHORITY, token_cache=cache)
+    return app_, cache
+
+def _save_ms_cache(cache):
+    if cache.has_state_changed:
+        MS_TOKEN_CACHE_PATH.write_text(cache.serialize())
+
+def _ms_account_email(app_) -> Optional[str]:
+    accounts = app_.get_accounts()
+    return accounts[0]["username"] if accounts else None
+
+async def _get_ms_token() -> Optional[str]:
+    app_, cache = _get_msal_app()
+    accounts = app_.get_accounts()
+    if not accounts:
+        return None
+    result = app_.acquire_token_silent(MS_SCOPES, account=accounts[0])
+    _save_ms_cache(cache)
+    return result.get("access_token") if result else None
+
+async def _outlook_login_worker(flow: dict):
+    app_, cache = _get_msal_app()
+    try:
+        result = await asyncio.to_thread(app_.acquire_token_by_device_flow, flow)
+        _save_ms_cache(cache)
+        if "access_token" not in result:
+            _ms_login_state["error"] = result.get("error_description", "login failed")
+    except Exception as e:
+        _ms_login_state["error"] = str(e)
+    finally:
+        _ms_login_state.update(pending=False, verification_uri=None, user_code=None)
+
+@app.get("/api/outlook/status")
+async def outlook_status():
+    if not MS_CLIENT_ID:
+        return {"configured": False}
+    app_, _ = _get_msal_app()
+    return {
+        "configured": True,
+        "logged_in": bool(_ms_account_email(app_)),
+        "account": _ms_account_email(app_),
+        **_ms_login_state,
+    }
+
+@app.post("/api/outlook/login/start")
+async def outlook_login_start():
+    if not MS_CLIENT_ID:
+        raise HTTPException(400, "MS_CLIENT_ID is not configured — set it in .env")
+    if _ms_login_state["pending"]:
+        raise HTTPException(409, "A login is already in progress")
+    app_, _ = _get_msal_app()
+    flow = app_.initiate_device_flow(scopes=MS_SCOPES)
+    if "user_code" not in flow:
+        error = flow.get("error_description", str(flow))
+        _ms_login_state.update(pending=False, verification_uri=None, user_code=None, error=error)
+        raise HTTPException(502, f"Could not start device login: {error}")
+    _ms_login_state.update(pending=True, verification_uri=flow["verification_uri"],
+                            user_code=flow["user_code"], error=None)
+    asyncio.create_task(_outlook_login_worker(flow))
+    return {
+        "verification_uri": flow["verification_uri"],
+        "user_code": flow["user_code"],
+        "expires_in": flow.get("expires_in", 900),
+    }
+
+@app.get("/api/outlook/messages")
+async def outlook_messages(limit: int = 25):
+    token = await _get_ms_token()
+    if not token:
+        raise HTTPException(401, "Not logged in to Outlook — POST /api/outlook/login/start first")
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            "https://graph.microsoft.com/v1.0/me/messages",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"$top": limit, "$orderby": "receivedDateTime desc",
+                    "$select": "subject,from,receivedDateTime,bodyPreview,webLink"},
+        )
+        resp.raise_for_status()
+    return resp.json().get("value", [])
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 

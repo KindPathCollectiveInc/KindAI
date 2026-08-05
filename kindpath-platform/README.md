@@ -88,10 +88,41 @@ everyone else's role.
 
 ### 5. Deploy
 
-- **Frontend:** point Vercel or Netlify at this directory; set the same
-  two `VITE_SUPABASE_*` env vars in their dashboard; build command
-  `npm run build`, output directory `dist`.
-- **Backend:** already deployed the moment your Supabase project exists.
+The backend is already live the moment your Supabase project exists and
+the migrations are applied. The frontend has three ways to run:
+
+**GitHub Pages** (this repo's default): `.github/workflows/deploy-pages.yml`
+builds and deploys automatically on every push to `main` that touches
+`kindpath-platform/`. One manual, one-time step is required — GitHub
+doesn't allow enabling Pages via the same API surface used everywhere
+else in this build: go to the repo's **Settings → Pages → Source** and
+select **GitHub Actions**. After that, every push deploys itself; check
+the **Actions** tab for the live URL (`https://<org>.github.io/<repo>/`).
+The routing is hash-based (`#/clients`, not `/clients`) specifically so
+this works with zero server configuration — see the comment in
+`src/App.tsx` for why.
+
+`.env.production` is committed (not gitignored) with the real project
+URL and publishable key — this is deliberate, not an oversight. Both
+values are designed to be public; RLS is what actually protects data,
+not secrecy of this key. The **secret key never goes in any file** —
+see `SECURITY.md`.
+
+**Vercel or Netlify**, if you'd rather not use Pages: point either at
+this directory, set the same two `VITE_SUPABASE_*` env vars in their
+dashboard (or just let it use the committed `.env.production`), build
+command `npm run build`, output directory `dist`. Works with
+`BrowserRouter` too if you switch back — Pages is what specifically
+needs the hash-routing workaround.
+
+**Electron desktop app** (Mac/Windows/Linux): `npm run electron` builds
+the web app and launches it in a native window — no separate backend to
+run, it's the same static build talking to the same Supabase project. To
+produce an installable app: `npm run electron:dist:mac`,
+`electron:dist:win`, or `electron:dist:linux` (output lands in
+`release/`). These builds are unsigned (no Apple/Windows code-signing
+certificate configured yet), so macOS Gatekeeper and Windows SmartScreen
+will warn on first launch until that's set up — expected, not a bug.
 
 ## What's built vs. what's roadmap
 
@@ -129,6 +160,13 @@ participant funds/trust account management (legislated, needs separate
 legal review), a full mobile point-of-care Shift Companion app,
 voice-to-text shift note integration, and inter-organisational data
 sharing beyond the read-only token-based summary.
+
+**Native mobile apps** (iOS/Android, App Store/Play Store) are a
+deliberately deferred later step, not started here — a materially
+bigger undertaking than the web/Electron builds (developer accounts,
+app review, ongoing store maintenance), separate from the point-of-care
+Shift Companion app noted above, which needs its own dedicated scoping
+regardless of packaging.
 
 ## Visual direction
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { HashRouter, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from '@/features/auth/AuthContext';
 import { ProtectedRoute, RoleGuard } from '@/features/auth/ProtectedRoute';
 import { LoginPage } from '@/features/auth/LoginPage';
@@ -33,9 +33,15 @@ function Protected({ children }: { children: ReactNode }) {
   );
 }
 
+// HashRouter, not BrowserRouter: this app is deployed as a static site
+// (GitHub Pages) with no server-side rewrite rules, and is also loaded
+// directly from the filesystem/a local static server inside the
+// Electron build. Hash-based routes (#/clients) never hit the server
+// for path resolution, so both of those environments "just work"
+// without a 404-fallback trick or a path-rewrite proxy.
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -205,6 +211,6 @@ export default function App() {
           />
         </Routes>
       </AuthProvider>
-    </BrowserRouter>
+    </HashRouter>
   );
 }

@@ -17,26 +17,35 @@ Domains:
   - Flashcards: note → card pipeline with spaced repetition queue
   - Reading list: books, papers, articles with status tracking
   - Assignments: essay/assignment drafting with AI Workbench support
+  - CSU sync: pulls assessment due dates from the student's own Interact2
+    (D2L Brightspace) calendar feed — the only outbound call this module
+    makes, and only to a URL the user supplies themselves via env var.
 
 KMP endpoints: /api/module/identity + /api/health
 KCE events: kindstudy.session.started, kindstudy.session.completed,
-            kindstudy.flashcard.reviewed, kindstudy.assignment.completed
+            kindstudy.flashcard.reviewed, kindstudy.assignment.completed,
+            kindstudy.csu.synced
 
 Run: python server.py
 """
 
 from __future__ import annotations
-import json, sqlite3, uuid
-from datetime import datetime, date, timedelta
+import asyncio, json, os, re, sqlite3, uuid
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import httpx
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from icalendar import Calendar
 from pydantic import BaseModel
 import uvicorn
+
+load_dotenv()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +54,12 @@ MODULE_ID = "kindstudy"
 MODULE_NAME = "KindStudy"
 MODULE_VERSION = "0.1.0"
 KCE_URL = "http://localhost:7870"
+
+# Personal Interact2 calendar feed URL (Calendar → Subscribe in Interact2).
+# Contains an auth token — keep it in .env, never commit it or log it.
+CSU_ICS_FEED_URL = os.environ.get("CSU_ICS_FEED_URL")
+CSU_SYNC_INTERVAL_HOURS = 6
+CSU_TZ = ZoneInfo("Australia/Sydney")
 
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -114,23 +129,30 @@ def init_db():
             );
 
             CREATE TABLE IF NOT EXISTS assignments (
-                id          TEXT PRIMARY KEY,
-                course_id   TEXT,
-                title       TEXT NOT NULL,
-                due_date    TEXT,
-                content     TEXT,
-                status      TEXT DEFAULT 'draft',
-                grade       TEXT,
-                word_count  INTEGER DEFAULT 0,
-                created_at  TEXT NOT NULL,
-                updated_at  TEXT NOT NULL,
+                id            TEXT PRIMARY KEY,
+                course_id     TEXT,
+                title         TEXT NOT NULL,
+                due_date      TEXT,
+                content       TEXT,
+                status        TEXT DEFAULT 'draft',
+                grade         TEXT,
+                word_count    INTEGER DEFAULT 0,
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL,
+                source        TEXT DEFAULT 'manual',
+                external_uid  TEXT,
                 FOREIGN KEY (course_id) REFERENCES courses(id)
             );
         """)
-        try:
-            conn.execute("ALTER TABLE assignments ADD COLUMN grade TEXT")
-        except sqlite3.OperationalError:
-            pass
+        for column, coltype in (("grade", "TEXT"), ("source", "TEXT DEFAULT 'manual'"), ("external_uid", "TEXT")):
+            try:
+                conn.execute(f"ALTER TABLE assignments ADD COLUMN {column} {coltype}")
+            except sqlite3.OperationalError:
+                pass
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_assignments_external_uid "
+            "ON assignments(external_uid) WHERE external_uid IS NOT NULL"
+        )
 
 init_db()
 
@@ -159,7 +181,7 @@ async def module_identity():
         "version": MODULE_VERSION,
         "port": PORT,
         "capabilities": ["study_sessions", "flashcards", "course_tracking",
-                         "reading_list", "assignments", "pomodoro"],
+                         "reading_list", "assignments", "pomodoro", "csu_sync"],
         "kmpVersion": "1.0",
     }
 
@@ -188,7 +210,10 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app):
     await _register_with_kce()
+    csu_task = asyncio.create_task(_csu_sync_loop()) if CSU_ICS_FEED_URL else None
     yield
+    if csu_task:
+        csu_task.cancel()
 
 app.router.lifespan_context = lifespan
 
@@ -473,14 +498,16 @@ async def create_assignment(req: AssignmentRequest):
         "word_count": len((req.content or "").split()) if req.content else 0,
         "created_at": now,
         "updated_at": now,
+        "source": "manual",
+        "external_uid": None,
     }
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO assignments VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO assignments VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (assignment["id"], assignment["course_id"], assignment["title"],
              assignment["due_date"], assignment["content"], assignment["status"],
              assignment["grade"], assignment["word_count"], assignment["created_at"],
-             assignment["updated_at"]),
+             assignment["updated_at"], assignment["source"], assignment["external_uid"]),
         )
     return assignment
 
@@ -504,6 +531,127 @@ async def update_assignment(assignment_id: str, body: dict):
     if status in ("done", "completed", "submitted") and row["status"] not in ("done", "completed", "submitted"):
         await _emit_event("kindstudy.assignment.completed", {"id": assignment_id, "title": row["title"]})
     return {"assignment_id": assignment_id, "status": status, "grade": grade}
+
+# ── CSU Feed Sync ─────────────────────────────────────────────────────────────
+# Pulls assessment due dates from the student's own Interact2 (D2L Brightspace)
+# calendar feed. Interact2 mixes timetable/event noise into the same feed, so
+# we only import VEVENTs whose SUMMARY marks them as an actual due date —
+# D2L appends "- Due" to those titles (e.g. "Assessment item 1 - Essay - Due").
+
+_csu_sync_state: Dict[str, Any] = {
+    "last_sync": None,
+    "last_created": 0,
+    "last_updated": 0,
+    "last_skipped": 0,
+    "last_error": None,
+}
+
+def _is_due_event(summary: str) -> bool:
+    return bool(summary) and summary.strip().lower().endswith("due")
+
+def _clean_title(summary: str) -> str:
+    return re.sub(r"\s*[-–—]\s*due\s*$", "", summary.strip(), flags=re.IGNORECASE).strip()
+
+def _due_date_from_ical(dt) -> Optional[str]:
+    if dt is None:
+        return None
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(CSU_TZ).date().isoformat()
+    return dt.isoformat()  # date-only (all-day) event
+
+def _get_or_create_course(conn, name: Optional[str]) -> Optional[str]:
+    if not name:
+        return None
+    row = conn.execute("SELECT id FROM courses WHERE name=?", (name,)).fetchone()
+    if row:
+        return row["id"]
+    course_id = str(uuid.uuid4())
+    conn.execute(
+        "INSERT INTO courses VALUES (?,?,?,?,?,?,?,?,?)",
+        (course_id, name, None, None, "active", 0.0, None, "[]", datetime.utcnow().isoformat()),
+    )
+    return course_id
+
+async def sync_csu_feed() -> dict:
+    if not CSU_ICS_FEED_URL:
+        raise RuntimeError("CSU_ICS_FEED_URL is not configured")
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(CSU_ICS_FEED_URL)
+        resp.raise_for_status()
+    cal = Calendar.from_ical(resp.content)
+
+    created = updated = skipped = 0
+    now = datetime.utcnow().isoformat()
+    with get_db() as conn:
+        for component in cal.walk("VEVENT"):
+            summary = str(component.get("SUMMARY", ""))
+            if not _is_due_event(summary):
+                skipped += 1
+                continue
+            uid = str(component.get("UID", "")) or None
+            if not uid:
+                skipped += 1
+                continue
+
+            dtstart = component.get("DTSTART")
+            due_date = _due_date_from_ical(dtstart.dt if dtstart else None)
+            title = _clean_title(summary)
+            course_id = _get_or_create_course(conn, str(component.get("LOCATION", "")).strip() or None)
+            description = str(component.get("DESCRIPTION", "")) or None
+
+            existing = conn.execute(
+                "SELECT id FROM assignments WHERE external_uid=?", (uid,)
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE assignments SET title=?, course_id=?, due_date=?, content=?, "
+                    "word_count=?, updated_at=? WHERE id=?",
+                    (title, course_id, due_date, description,
+                     len((description or "").split()), now, existing["id"]),
+                )
+                updated += 1
+            else:
+                conn.execute(
+                    "INSERT INTO assignments VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), course_id, title, due_date, description,
+                     "draft", None, len((description or "").split()), now, now,
+                     "csu", uid),
+                )
+                created += 1
+
+    _csu_sync_state.update(last_sync=now, last_created=created, last_updated=updated,
+                            last_skipped=skipped, last_error=None)
+    return {"created": created, "updated": updated, "skipped": skipped}
+
+@app.get("/api/csu/status")
+async def csu_status():
+    return {"configured": bool(CSU_ICS_FEED_URL), **_csu_sync_state}
+
+@app.post("/api/csu/sync")
+async def csu_sync():
+    if not CSU_ICS_FEED_URL:
+        raise HTTPException(400, "CSU_ICS_FEED_URL is not configured — set it in .env")
+    try:
+        result = await sync_csu_feed()
+    except Exception as e:
+        _csu_sync_state["last_error"] = str(e)
+        raise HTTPException(502, f"CSU sync failed: {e}")
+    await _emit_event("kindstudy.csu.synced", result)
+    return result
+
+async def _csu_sync_loop():
+    while True:
+        try:
+            result = await sync_csu_feed()
+            print(f"[KindStudy] CSU feed synced: {result}")
+            await _emit_event("kindstudy.csu.synced", result)
+        except Exception as e:
+            _csu_sync_state["last_error"] = str(e)
+            print(f"[KindStudy] CSU sync failed: {e}")
+        await asyncio.sleep(CSU_SYNC_INTERVAL_HOURS * 3600)
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 

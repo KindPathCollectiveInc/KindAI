@@ -55,9 +55,20 @@ MODULE_NAME = "KindStudy"
 MODULE_VERSION = "0.1.0"
 KCE_URL = "http://localhost:7870"
 
-# Personal Interact2 calendar feed URL (Calendar → Subscribe in Interact2).
-# Contains an auth token — keep it in .env, never commit it or log it.
-CSU_ICS_FEED_URL = os.environ.get("CSU_ICS_FEED_URL")
+# Personal Interact2 calendar feed URL(s) (Calendar → Subscribe in Interact2).
+# CSU's "All Subjects" feed doesn't reliably include every enrolled unit, so
+# this accepts one or more feed URLs (whitespace/comma/newline separated) —
+# typically the all-subjects one plus a per-unit one (?feedOU=...) for any
+# unit missing from it. Each contains an auth token — keep them in .env,
+# never commit or log them. CSU_ICS_FEED_URL (singular) still works too.
+def _parse_feed_urls(raw: Optional[str]) -> List[str]:
+    if not raw:
+        return []
+    return [u for u in re.split(r"[\s,]+", raw.strip()) if u]
+
+CSU_ICS_FEED_URLS = _parse_feed_urls(
+    os.environ.get("CSU_ICS_FEED_URLS") or os.environ.get("CSU_ICS_FEED_URL")
+)
 CSU_SYNC_INTERVAL_HOURS = 6
 CSU_TZ = ZoneInfo("Australia/Sydney")
 
@@ -210,7 +221,7 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app):
     await _register_with_kce()
-    csu_task = asyncio.create_task(_csu_sync_loop()) if CSU_ICS_FEED_URL else None
+    csu_task = asyncio.create_task(_csu_sync_loop()) if CSU_ICS_FEED_URLS else None
     yield
     if csu_task:
         csu_task.cancel()
@@ -575,65 +586,76 @@ def _get_or_create_course(conn, name: Optional[str]) -> Optional[str]:
     return course_id
 
 async def sync_csu_feed() -> dict:
-    if not CSU_ICS_FEED_URL:
-        raise RuntimeError("CSU_ICS_FEED_URL is not configured")
+    if not CSU_ICS_FEED_URLS:
+        raise RuntimeError("CSU_ICS_FEED_URLS is not configured")
 
+    calendars = []
+    feed_errors = []
     async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.get(CSU_ICS_FEED_URL)
-        resp.raise_for_status()
-    cal = Calendar.from_ical(resp.content)
+        for feed_url in CSU_ICS_FEED_URLS:
+            try:
+                resp = await client.get(feed_url)
+                resp.raise_for_status()
+                calendars.append(Calendar.from_ical(resp.content))
+            except Exception as e:
+                feed_errors.append(str(e))
+
+    if not calendars:
+        raise RuntimeError("; ".join(feed_errors) or "no feeds configured")
 
     created = updated = skipped = 0
     now = datetime.utcnow().isoformat()
     with get_db() as conn:
-        for component in cal.walk("VEVENT"):
-            summary = str(component.get("SUMMARY", ""))
-            if not _is_due_event(summary):
-                skipped += 1
-                continue
-            uid = str(component.get("UID", "")) or None
-            if not uid:
-                skipped += 1
-                continue
+        for cal in calendars:
+            for component in cal.walk("VEVENT"):
+                summary = str(component.get("SUMMARY", ""))
+                if not _is_due_event(summary):
+                    skipped += 1
+                    continue
+                uid = str(component.get("UID", "")) or None
+                if not uid:
+                    skipped += 1
+                    continue
 
-            dtstart = component.get("DTSTART")
-            due_date = _due_date_from_ical(dtstart.dt if dtstart else None)
-            title = _clean_title(summary)
-            course_id = _get_or_create_course(conn, str(component.get("LOCATION", "")).strip() or None)
-            description = str(component.get("DESCRIPTION", "")) or None
+                dtstart = component.get("DTSTART")
+                due_date = _due_date_from_ical(dtstart.dt if dtstart else None)
+                title = _clean_title(summary)
+                course_id = _get_or_create_course(conn, str(component.get("LOCATION", "")).strip() or None)
+                description = str(component.get("DESCRIPTION", "")) or None
 
-            existing = conn.execute(
-                "SELECT id FROM assignments WHERE external_uid=?", (uid,)
-            ).fetchone()
-            if existing:
-                conn.execute(
-                    "UPDATE assignments SET title=?, course_id=?, due_date=?, content=?, "
-                    "word_count=?, updated_at=? WHERE id=?",
-                    (title, course_id, due_date, description,
-                     len((description or "").split()), now, existing["id"]),
-                )
-                updated += 1
-            else:
-                conn.execute(
-                    "INSERT INTO assignments VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (str(uuid.uuid4()), course_id, title, due_date, description,
-                     "draft", None, len((description or "").split()), now, now,
-                     "csu", uid),
-                )
-                created += 1
+                existing = conn.execute(
+                    "SELECT id FROM assignments WHERE external_uid=?", (uid,)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE assignments SET title=?, course_id=?, due_date=?, content=?, "
+                        "word_count=?, updated_at=? WHERE id=?",
+                        (title, course_id, due_date, description,
+                         len((description or "").split()), now, existing["id"]),
+                    )
+                    updated += 1
+                else:
+                    conn.execute(
+                        "INSERT INTO assignments VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), course_id, title, due_date, description,
+                         "draft", None, len((description or "").split()), now, now,
+                         "csu", uid),
+                    )
+                    created += 1
 
     _csu_sync_state.update(last_sync=now, last_created=created, last_updated=updated,
-                            last_skipped=skipped, last_error=None)
-    return {"created": created, "updated": updated, "skipped": skipped}
+                            last_skipped=skipped, last_error="; ".join(feed_errors) or None)
+    return {"created": created, "updated": updated, "skipped": skipped,
+            "feeds_synced": len(calendars), "feed_errors": feed_errors}
 
 @app.get("/api/csu/status")
 async def csu_status():
-    return {"configured": bool(CSU_ICS_FEED_URL), **_csu_sync_state}
+    return {"configured": bool(CSU_ICS_FEED_URLS), "feed_count": len(CSU_ICS_FEED_URLS), **_csu_sync_state}
 
 @app.post("/api/csu/sync")
 async def csu_sync():
-    if not CSU_ICS_FEED_URL:
-        raise HTTPException(400, "CSU_ICS_FEED_URL is not configured — set it in .env")
+    if not CSU_ICS_FEED_URLS:
+        raise HTTPException(400, "CSU_ICS_FEED_URLS is not configured — set it in .env")
     try:
         result = await sync_csu_feed()
     except Exception as e:

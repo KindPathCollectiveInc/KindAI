@@ -27,7 +27,8 @@ student's own CSU (Interact2/D2L Brightspace) calendar feed. KMP 1.0 compliant.
 ```
 KindStudy/
 ├── server.py           — FastAPI app (KMP 1.0, SM-2 flashcard engine, CSU sync)
-├── run.sh              — Start script
+├── run.sh              — Start script (Mac/Linux)
+├── run.ps1             — Start script (Windows)
 ├── requirements.txt
 ├── .env.example         — Copy to .env; holds CSU_ICS_FEED_URLS, MS_CLIENT_ID
 ├── static/
@@ -39,7 +40,7 @@ KindStudy/
 
 ## Operational Commands
 
-- **Run**: `./run.sh`  or  `uvicorn server:app --port 7871`
+- **Run**: `./run.sh` (Mac/Linux), `.\run.ps1` (Windows PowerShell), or `uvicorn server:app --port 7871` directly
 - **Health check**: `curl http://localhost:7871/api/health`
 - **CSU setup**: copy `.env.example` to `.env`, set `CSU_ICS_FEED_URLS` to the
   personal feed URL(s) from Interact2 → Calendar → Subscribe (space/comma

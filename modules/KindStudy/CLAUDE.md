@@ -15,7 +15,7 @@ Integration" sections. No other external calls, no telemetry.
 
 ## Operational Commands
 - **Install**: `pip install -r requirements.txt`
-- **Run**: `bash run.sh` (starts on port 7871)
+- **Run**: `bash run.sh` (Mac/Linux) or `.\run.ps1` (Windows PowerShell) — starts on port 7871
 - **Test**: `pytest` (if tests exist)
 - **CSU sync**: set `CSU_ICS_FEED_URLS` in `.env` (see `.env.example`)
 - **Outlook**: set `MS_CLIENT_ID` in `.env`, then log in via the dashboard

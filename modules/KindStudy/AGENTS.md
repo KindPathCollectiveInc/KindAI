@@ -29,6 +29,8 @@ KindStudy/
 ├── server.py           — FastAPI app (KMP 1.0, SM-2 flashcard engine, CSU sync)
 ├── run.sh              — Start script (Mac/Linux)
 ├── run.ps1             — Start script (Windows)
+├── start-kindstudy.bat — Double-clickable launcher (Windows): runs run.ps1, opens the dashboard
+├── create-desktop-shortcut.ps1 — One-time: adds a desktop icon pointing at start-kindstudy.bat
 ├── requirements.txt
 ├── .env.example         — Copy to .env; holds CSU_ICS_FEED_URLS, MS_CLIENT_ID
 ├── static/
@@ -41,6 +43,7 @@ KindStudy/
 ## Operational Commands
 
 - **Run**: `./run.sh` (Mac/Linux), `.\run.ps1` (Windows PowerShell), or `uvicorn server:app --port 7871` directly
+- **Windows desktop icon**: run `.\create-desktop-shortcut.ps1` once — it adds a "KindStudy" shortcut to the desktop that launches `start-kindstudy.bat` (starts the server, opens the dashboard in the default browser)
 - **Health check**: `curl http://localhost:7871/api/health`
 - **CSU setup**: copy `.env.example` to `.env`, set `CSU_ICS_FEED_URLS` to the
   personal feed URL(s) from Interact2 → Calendar → Subscribe (space/comma

@@ -17,25 +17,36 @@ Domains:
   - Flashcards: note → card pipeline with spaced repetition queue
   - Reading list: books, papers, articles with status tracking
   - Assignments: essay/assignment drafting with AI Workbench support
+  - CSU sync: pulls assessment due dates from the student's own Interact2
+    (D2L Brightspace) calendar feed — the only outbound call this module
+    makes, and only to a URL the user supplies themselves via env var.
 
 KMP endpoints: /api/module/identity + /api/health
-KCE events: study.session.started, study.session.completed, study.card.reviewed
+KCE events: kindstudy.session.started, kindstudy.session.completed,
+            kindstudy.flashcard.reviewed, kindstudy.assignment.completed,
+            kindstudy.csu.synced
 
 Run: python server.py
 """
 
 from __future__ import annotations
-import json, sqlite3, uuid
-from datetime import datetime, date, timedelta
+import asyncio, json, os, re, sqlite3, uuid
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import httpx
+import msal
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from icalendar import Calendar
 from pydantic import BaseModel
 import uvicorn
+
+load_dotenv()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -45,9 +56,34 @@ MODULE_NAME = "KindStudy"
 MODULE_VERSION = "0.1.0"
 KCE_URL = "http://localhost:7870"
 
+# Personal Interact2 calendar feed URL(s) (Calendar → Subscribe in Interact2).
+# CSU's "All Subjects" feed doesn't reliably include every enrolled unit, so
+# this accepts one or more feed URLs (whitespace/comma/newline separated) —
+# typically the all-subjects one plus a per-unit one (?feedOU=...) for any
+# unit missing from it. Each contains an auth token — keep them in .env,
+# never commit or log them. CSU_ICS_FEED_URL (singular) still works too.
+def _parse_feed_urls(raw: Optional[str]) -> List[str]:
+    if not raw:
+        return []
+    return [u for u in re.split(r"[\s,]+", raw.strip()) if u]
+
+CSU_ICS_FEED_URLS = _parse_feed_urls(
+    os.environ.get("CSU_ICS_FEED_URLS") or os.environ.get("CSU_ICS_FEED_URL")
+)
+CSU_SYNC_INTERVAL_HOURS = 6
+CSU_TZ = ZoneInfo("Australia/Sydney")
+
+# Outlook (Microsoft Graph) — personal Azure app registration, device-code
+# login. The user completes the actual login themselves in their own
+# browser; this app only ever holds a refresh token it obtains that way.
+MS_CLIENT_ID = os.environ.get("MS_CLIENT_ID")
+MS_AUTHORITY = "https://login.microsoftonline.com/consumers"
+MS_SCOPES = ["Mail.Read"]
+
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "kindstudy.db"
+MS_TOKEN_CACHE_PATH = DATA_DIR / "ms_token_cache.bin"
 
 # ── Database ──────────────────────────────────────────────────────────────────
 
@@ -113,18 +149,30 @@ def init_db():
             );
 
             CREATE TABLE IF NOT EXISTS assignments (
-                id          TEXT PRIMARY KEY,
-                course_id   TEXT,
-                title       TEXT NOT NULL,
-                due_date    TEXT,
-                content     TEXT,
-                status      TEXT DEFAULT 'draft',
-                word_count  INTEGER DEFAULT 0,
-                created_at  TEXT NOT NULL,
-                updated_at  TEXT NOT NULL,
+                id            TEXT PRIMARY KEY,
+                course_id     TEXT,
+                title         TEXT NOT NULL,
+                due_date      TEXT,
+                content       TEXT,
+                status        TEXT DEFAULT 'draft',
+                grade         TEXT,
+                word_count    INTEGER DEFAULT 0,
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL,
+                source        TEXT DEFAULT 'manual',
+                external_uid  TEXT,
                 FOREIGN KEY (course_id) REFERENCES courses(id)
             );
         """)
+        for column, coltype in (("grade", "TEXT"), ("source", "TEXT DEFAULT 'manual'"), ("external_uid", "TEXT")):
+            try:
+                conn.execute(f"ALTER TABLE assignments ADD COLUMN {column} {coltype}")
+            except sqlite3.OperationalError:
+                pass
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_assignments_external_uid "
+            "ON assignments(external_uid) WHERE external_uid IS NOT NULL"
+        )
 
 init_db()
 
@@ -153,7 +201,7 @@ async def module_identity():
         "version": MODULE_VERSION,
         "port": PORT,
         "capabilities": ["study_sessions", "flashcards", "course_tracking",
-                         "reading_list", "assignments", "pomodoro"],
+                         "reading_list", "assignments", "pomodoro", "csu_sync"],
         "kmpVersion": "1.0",
     }
 
@@ -182,7 +230,10 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app):
     await _register_with_kce()
+    csu_task = asyncio.create_task(_csu_sync_loop()) if CSU_ICS_FEED_URLS else None
     yield
+    if csu_task:
+        csu_task.cancel()
 
 app.router.lifespan_context = lifespan
 
@@ -275,7 +326,7 @@ async def start_session(req: SessionRequest):
              session["started_at"], session["ended_at"], session["duration_min"],
              session["notes"], session["session_type"], session["created_at"]),
         )
-    await _emit_event("study.session.started", {"id": session["id"], "type": req.session_type})
+    await _emit_event("kindstudy.session.started", {"id": session["id"], "type": req.session_type})
     return session
 
 @app.post("/api/sessions/{session_id}/end")
@@ -292,7 +343,7 @@ async def end_session(session_id: str, body: dict = None):
             "UPDATE sessions SET ended_at=?, duration_min=?, notes=COALESCE(?, notes) WHERE id=?",
             (ended_at, duration_min, body.get("notes"), session_id),
         )
-    await _emit_event("study.session.completed", {"id": session_id, "duration_min": duration_min})
+    await _emit_event("kindstudy.session.completed", {"id": session_id, "duration_min": duration_min})
     return {"session_id": session_id, "ended_at": ended_at, "duration_min": duration_min}
 
 # ── Flashcards ────────────────────────────────────────────────────────────────
@@ -379,7 +430,7 @@ async def review_card(card_id: str, body: dict):
             "UPDATE flashcards SET ease_factor=?, interval_days=?, next_review=?, review_count=review_count+1, last_reviewed=? WHERE id=?",
             (ef, interval, next_review, date.today().isoformat(), card_id),
         )
-    await _emit_event("study.card.reviewed", {"id": card_id, "quality": quality, "next_review": next_review})
+    await _emit_event("kindstudy.flashcard.reviewed", {"id": card_id, "quality": quality, "next_review": next_review})
     return {"card_id": card_id, "next_review": next_review, "interval_days": interval}
 
 # ── Reading List ──────────────────────────────────────────────────────────────
@@ -429,6 +480,309 @@ async def update_reading_status(item_id: str, body: dict):
     with get_db() as conn:
         conn.execute("UPDATE reading_list SET status=? WHERE id=?", (status, item_id))
     return {"item_id": item_id, "status": status}
+
+# ── Assignments ───────────────────────────────────────────────────────────────
+
+class AssignmentRequest(BaseModel):
+    title: str
+    course_id: Optional[str] = None
+    due_date: Optional[str] = None
+    content: Optional[str] = None
+
+@app.get("/api/assignments")
+async def list_assignments(course_id: Optional[str] = None, status: Optional[str] = None):
+    query = "SELECT * FROM assignments WHERE 1=1"
+    params: List[Any] = []
+    if course_id:
+        query += " AND course_id=?"
+        params.append(course_id)
+    if status:
+        query += " AND status=?"
+        params.append(status)
+    query += " ORDER BY (due_date IS NULL), due_date"
+    with get_db() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
+
+@app.post("/api/assignments", status_code=201)
+async def create_assignment(req: AssignmentRequest):
+    now = datetime.utcnow().isoformat()
+    assignment = {
+        "id": str(uuid.uuid4()),
+        "course_id": req.course_id,
+        "title": req.title,
+        "due_date": req.due_date,
+        "content": req.content,
+        "status": "draft",
+        "grade": None,
+        "word_count": len((req.content or "").split()) if req.content else 0,
+        "created_at": now,
+        "updated_at": now,
+        "source": "manual",
+        "external_uid": None,
+    }
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO assignments VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (assignment["id"], assignment["course_id"], assignment["title"],
+             assignment["due_date"], assignment["content"], assignment["status"],
+             assignment["grade"], assignment["word_count"], assignment["created_at"],
+             assignment["updated_at"], assignment["source"], assignment["external_uid"]),
+        )
+    return assignment
+
+@app.put("/api/assignments/{assignment_id}")
+async def update_assignment(assignment_id: str, body: dict):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM assignments WHERE id=?", (assignment_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Assignment not found")
+
+        status = body.get("status", row["status"])
+        content = body.get("content", row["content"])
+        grade = body.get("grade", row["grade"])
+        due_date = body.get("due_date", row["due_date"])
+        word_count = len(content.split()) if content else 0
+
+        conn.execute(
+            "UPDATE assignments SET status=?, content=?, grade=?, due_date=?, word_count=?, updated_at=? WHERE id=?",
+            (status, content, grade, due_date, word_count, datetime.utcnow().isoformat(), assignment_id),
+        )
+    if status in ("done", "completed", "submitted") and row["status"] not in ("done", "completed", "submitted"):
+        await _emit_event("kindstudy.assignment.completed", {"id": assignment_id, "title": row["title"]})
+    return {"assignment_id": assignment_id, "status": status, "grade": grade}
+
+# ── CSU Feed Sync ─────────────────────────────────────────────────────────────
+# Pulls assessment due dates from the student's own Interact2 (D2L Brightspace)
+# calendar feed. Interact2 mixes timetable/event noise into the same feed, so
+# we only import VEVENTs whose SUMMARY marks them as an actual due date —
+# D2L appends "- Due" to those titles (e.g. "Assessment item 1 - Essay - Due").
+
+_csu_sync_state: Dict[str, Any] = {
+    "last_sync": None,
+    "last_created": 0,
+    "last_updated": 0,
+    "last_skipped": 0,
+    "last_error": None,
+}
+
+def _is_due_event(summary: str) -> bool:
+    return bool(summary) and summary.strip().lower().endswith("due")
+
+def _clean_title(summary: str) -> str:
+    return re.sub(r"\s*[-–—]\s*due\s*$", "", summary.strip(), flags=re.IGNORECASE).strip()
+
+def _due_date_from_ical(dt) -> Optional[str]:
+    if dt is None:
+        return None
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(CSU_TZ).date().isoformat()
+    return dt.isoformat()  # date-only (all-day) event
+
+def _get_or_create_course(conn, name: Optional[str]) -> Optional[str]:
+    if not name:
+        return None
+    row = conn.execute("SELECT id FROM courses WHERE name=?", (name,)).fetchone()
+    if row:
+        return row["id"]
+    course_id = str(uuid.uuid4())
+    conn.execute(
+        "INSERT INTO courses VALUES (?,?,?,?,?,?,?,?,?)",
+        (course_id, name, None, None, "active", 0.0, None, "[]", datetime.utcnow().isoformat()),
+    )
+    return course_id
+
+async def sync_csu_feed() -> dict:
+    if not CSU_ICS_FEED_URLS:
+        raise RuntimeError("CSU_ICS_FEED_URLS is not configured")
+
+    calendars = []
+    feed_errors = []
+    async with httpx.AsyncClient(timeout=20) as client:
+        for feed_url in CSU_ICS_FEED_URLS:
+            try:
+                resp = await client.get(feed_url)
+                resp.raise_for_status()
+                calendars.append(Calendar.from_ical(resp.content))
+            except Exception as e:
+                feed_errors.append(str(e))
+
+    if not calendars:
+        raise RuntimeError("; ".join(feed_errors) or "no feeds configured")
+
+    created = updated = skipped = 0
+    now = datetime.utcnow().isoformat()
+    with get_db() as conn:
+        for cal in calendars:
+            for component in cal.walk("VEVENT"):
+                summary = str(component.get("SUMMARY", ""))
+                if not _is_due_event(summary):
+                    skipped += 1
+                    continue
+                uid = str(component.get("UID", "")) or None
+                if not uid:
+                    skipped += 1
+                    continue
+
+                dtstart = component.get("DTSTART")
+                due_date = _due_date_from_ical(dtstart.dt if dtstart else None)
+                title = _clean_title(summary)
+                course_id = _get_or_create_course(conn, str(component.get("LOCATION", "")).strip() or None)
+                description = str(component.get("DESCRIPTION", "")) or None
+
+                existing = conn.execute(
+                    "SELECT id FROM assignments WHERE external_uid=?", (uid,)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE assignments SET title=?, course_id=?, due_date=?, content=?, "
+                        "word_count=?, updated_at=? WHERE id=?",
+                        (title, course_id, due_date, description,
+                         len((description or "").split()), now, existing["id"]),
+                    )
+                    updated += 1
+                else:
+                    conn.execute(
+                        "INSERT INTO assignments VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), course_id, title, due_date, description,
+                         "draft", None, len((description or "").split()), now, now,
+                         "csu", uid),
+                    )
+                    created += 1
+
+    _csu_sync_state.update(last_sync=now, last_created=created, last_updated=updated,
+                            last_skipped=skipped, last_error="; ".join(feed_errors) or None)
+    return {"created": created, "updated": updated, "skipped": skipped,
+            "feeds_synced": len(calendars), "feed_errors": feed_errors}
+
+@app.get("/api/csu/status")
+async def csu_status():
+    return {"configured": bool(CSU_ICS_FEED_URLS), "feed_count": len(CSU_ICS_FEED_URLS), **_csu_sync_state}
+
+@app.post("/api/csu/sync")
+async def csu_sync():
+    if not CSU_ICS_FEED_URLS:
+        raise HTTPException(400, "CSU_ICS_FEED_URLS is not configured — set it in .env")
+    try:
+        result = await sync_csu_feed()
+    except Exception as e:
+        _csu_sync_state["last_error"] = str(e)
+        raise HTTPException(502, f"CSU sync failed: {e}")
+    await _emit_event("kindstudy.csu.synced", result)
+    return result
+
+async def _csu_sync_loop():
+    while True:
+        try:
+            result = await sync_csu_feed()
+            print(f"[KindStudy] CSU feed synced: {result}")
+            await _emit_event("kindstudy.csu.synced", result)
+        except Exception as e:
+            _csu_sync_state["last_error"] = str(e)
+            print(f"[KindStudy] CSU sync failed: {e}")
+        await asyncio.sleep(CSU_SYNC_INTERVAL_HOURS * 3600)
+
+# ── Outlook (Microsoft Graph) ─────────────────────────────────────────────────
+# Device-code login: the user visits verification_uri themselves and enters
+# user_code in their own browser, signing in with their own Microsoft
+# account. This app never sees their password — only the refresh token MSAL
+# obtains afterwards, cached locally at MS_TOKEN_CACHE_PATH (gitignored).
+#
+# This module only handles auth + raw message listing so far. Auto-creating
+# assignments from email content is deliberately not implemented yet — unlike
+# the CSU calendar feed (which has a reliable structured "- Due" marker),
+# email due-date mentions are free text, and that needs designing against
+# real message samples rather than guessed at blind.
+
+_ms_login_state: Dict[str, Any] = {
+    "pending": False, "verification_uri": None, "user_code": None, "error": None,
+}
+
+def _get_msal_app():
+    cache = msal.SerializableTokenCache()
+    if MS_TOKEN_CACHE_PATH.exists():
+        cache.deserialize(MS_TOKEN_CACHE_PATH.read_text())
+    app_ = msal.PublicClientApplication(MS_CLIENT_ID, authority=MS_AUTHORITY, token_cache=cache)
+    return app_, cache
+
+def _save_ms_cache(cache):
+    if cache.has_state_changed:
+        MS_TOKEN_CACHE_PATH.write_text(cache.serialize())
+
+def _ms_account_email(app_) -> Optional[str]:
+    accounts = app_.get_accounts()
+    return accounts[0]["username"] if accounts else None
+
+async def _get_ms_token() -> Optional[str]:
+    app_, cache = _get_msal_app()
+    accounts = app_.get_accounts()
+    if not accounts:
+        return None
+    result = app_.acquire_token_silent(MS_SCOPES, account=accounts[0])
+    _save_ms_cache(cache)
+    return result.get("access_token") if result else None
+
+async def _outlook_login_worker(flow: dict):
+    app_, cache = _get_msal_app()
+    try:
+        result = await asyncio.to_thread(app_.acquire_token_by_device_flow, flow)
+        _save_ms_cache(cache)
+        if "access_token" not in result:
+            _ms_login_state["error"] = result.get("error_description", "login failed")
+    except Exception as e:
+        _ms_login_state["error"] = str(e)
+    finally:
+        _ms_login_state.update(pending=False, verification_uri=None, user_code=None)
+
+@app.get("/api/outlook/status")
+async def outlook_status():
+    if not MS_CLIENT_ID:
+        return {"configured": False}
+    app_, _ = _get_msal_app()
+    return {
+        "configured": True,
+        "logged_in": bool(_ms_account_email(app_)),
+        "account": _ms_account_email(app_),
+        **_ms_login_state,
+    }
+
+@app.post("/api/outlook/login/start")
+async def outlook_login_start():
+    if not MS_CLIENT_ID:
+        raise HTTPException(400, "MS_CLIENT_ID is not configured — set it in .env")
+    if _ms_login_state["pending"]:
+        raise HTTPException(409, "A login is already in progress")
+    app_, _ = _get_msal_app()
+    flow = app_.initiate_device_flow(scopes=MS_SCOPES)
+    if "user_code" not in flow:
+        error = flow.get("error_description", str(flow))
+        _ms_login_state.update(pending=False, verification_uri=None, user_code=None, error=error)
+        raise HTTPException(502, f"Could not start device login: {error}")
+    _ms_login_state.update(pending=True, verification_uri=flow["verification_uri"],
+                            user_code=flow["user_code"], error=None)
+    asyncio.create_task(_outlook_login_worker(flow))
+    return {
+        "verification_uri": flow["verification_uri"],
+        "user_code": flow["user_code"],
+        "expires_in": flow.get("expires_in", 900),
+    }
+
+@app.get("/api/outlook/messages")
+async def outlook_messages(limit: int = 25):
+    token = await _get_ms_token()
+    if not token:
+        raise HTTPException(401, "Not logged in to Outlook — POST /api/outlook/login/start first")
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            "https://graph.microsoft.com/v1.0/me/messages",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"$top": limit, "$orderby": "receivedDateTime desc",
+                    "$select": "subject,from,receivedDateTime,bodyPreview,webLink"},
+        )
+        resp.raise_for_status()
+    return resp.json().get("value", [])
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 

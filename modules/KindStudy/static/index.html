@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KindStudy</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0d0d1a;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;padding:1.5rem}
+    h1{font-size:1.4rem;font-weight:600;color:#818cf8;margin-bottom:1.5rem;letter-spacing:.03em}
+    h2{font-size:.85rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;margin-bottom:.75rem}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem;margin-bottom:1.5rem}
+    .card{background:#12122a;border:1px solid #262650;border-radius:10px;padding:1.2rem}
+    .metric{font-size:2rem;font-weight:700;color:#818cf8}
+    .label{font-size:.75rem;color:#6b7280;margin-top:.25rem}
+    form{display:flex;flex-direction:column;gap:.5rem}
+    select,input,textarea{background:#1a1a38;border:1px solid #33336b;border-radius:6px;color:#e0e0e0;padding:.5rem .75rem;font-size:.85rem;width:100%;font-family:inherit}
+    textarea{resize:vertical;min-height:60px}
+    button{background:#4f46e5;color:#fff;border:none;border-radius:6px;padding:.55rem 1.2rem;cursor:pointer;font-size:.85rem;font-weight:600}
+    button:hover{background:#4338ca}
+    button.sm{padding:.25rem .5rem;font-size:.72rem}
+    button.ghost{background:transparent;border:1px solid #33336b;color:#e0e0e0}
+    button.ghost:hover{background:#1a1a38}
+    .list{list-style:none;display:flex;flex-direction:column;gap:.35rem;max-height:320px;overflow-y:auto}
+    .list li{background:#1a1a38;border:1px solid #262650;border-radius:6px;padding:.5rem .75rem;font-size:.8rem;display:flex;justify-content:space-between;align-items:center;gap:.5rem}
+    .row{display:flex;flex-direction:column;gap:.15rem}
+    .tag{background:#312e81;color:#a5b4fc;border-radius:4px;padding:.1rem .4rem;font-size:.7rem;white-space:nowrap}
+    .overdue{color:#ef4444;font-weight:700}
+    .soon{color:#fbbf24}
+    .actions{display:flex;gap:.35rem;flex-shrink:0}
+    #status{font-size:.75rem;color:#6b7280;margin-bottom:1rem}
+    .wide{grid-column:span 2}
+    .section{margin-top:1.5rem}
+    .empty{color:#6b7280}
+    #flash-front,#flash-back{background:#1a1a38;border:1px solid #262650;border-radius:8px;padding:1rem;font-size:.95rem;margin-bottom:.6rem;min-height:3rem}
+    #flash-back{display:none;color:#a5b4fc}
+    .quality-row{display:flex;gap:.35rem;flex-wrap:wrap}
+    .quality-row button{flex:1;min-width:40px}
+    .inline{display:flex;gap:.5rem;flex-wrap:wrap}
+    .inline > *{flex:1;min-width:100px}
+    #timer{font-size:1.1rem;font-weight:700;color:#a5b4fc}
+  </style>
+</head>
+<body>
+
+<h1>KindStudy</h1>
+<div id="status">Loading...</div>
+
+<div class="grid">
+  <div class="card"><div class="metric" id="m-overdue" style="color:#ef4444">—</div><div class="label">Overdue Assignments</div></div>
+  <div class="card"><div class="metric" id="m-due-soon">—</div><div class="label">Due in 7 Days</div></div>
+  <div class="card"><div class="metric" id="m-flash-due">—</div><div class="label">Flashcards Due</div></div>
+  <div class="card"><div class="metric" id="m-courses">—</div><div class="label">Active Courses</div></div>
+</div>
+
+<!-- Due dates -->
+<div class="section">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">Assignments &amp; Due Dates</h2>
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <span class="label" id="csu-status"></span>
+        <button class="sm ghost" id="csu-sync-btn" style="display:none">Sync CSU Feed</button>
+      </div>
+    </div>
+    <ul class="list" id="assignment-list" style="margin-top:.75rem"></ul>
+    <form id="assignment-form" class="inline" style="margin-top:.75rem">
+      <input id="a-title" type="text" placeholder="Assignment title" style="flex:2" required />
+      <select id="a-course"></select>
+      <input id="a-due" type="date" />
+      <button type="submit" style="flex:none">Add</button>
+    </form>
+  </div>
+</div>
+
+<div class="grid section">
+  <!-- Study assistance: sessions + flashcards -->
+  <div class="card">
+    <h2>Study Session</h2>
+    <div id="timer">No active session</div>
+    <form id="session-form" class="inline" style="margin-top:.6rem">
+      <select id="s-course"></select>
+      <input id="s-title" type="text" placeholder="Session focus (optional)" />
+      <button type="submit" id="session-btn" style="flex:none">Start</button>
+    </form>
+    <ul class="list" id="session-list" style="margin-top:.75rem"></ul>
+  </div>
+
+  <div class="card">
+    <h2>Flashcard Review (SM-2)</h2>
+    <div id="flash-front" class="empty">No cards due — nice work.</div>
+    <div id="flash-back"></div>
+    <button class="ghost" id="flash-show" style="display:none">Show Answer</button>
+    <div class="quality-row" id="flash-quality" style="display:none;margin-top:.5rem"></div>
+    <details style="margin-top:.75rem">
+      <summary style="cursor:pointer;font-size:.8rem;color:#6b7280">Add a card</summary>
+      <form id="flash-form" style="margin-top:.5rem">
+        <select id="f-course"></select>
+        <input id="f-front" type="text" placeholder="Front (question)" required />
+        <input id="f-back" type="text" placeholder="Back (answer)" required />
+        <button type="submit" style="flex:none">Add Card</button>
+      </form>
+    </details>
+  </div>
+</div>
+
+<div class="grid section">
+  <!-- Courses -->
+  <div class="card">
+    <h2>Courses</h2>
+    <ul class="list" id="course-list"></ul>
+    <form id="course-form" style="margin-top:.75rem">
+      <input id="c-name" type="text" placeholder="Course name" required />
+      <input id="c-subject" type="text" placeholder="Subject (optional)" />
+      <input id="c-target" type="date" />
+      <button type="submit">Add Course</button>
+    </form>
+  </div>
+
+  <!-- Research / reading -->
+  <div class="card">
+    <h2>Reading &amp; Research</h2>
+    <ul class="list" id="reading-list"></ul>
+    <form id="reading-form" class="inline" style="margin-top:.75rem">
+      <input id="r-title" type="text" placeholder="Title" style="flex:2" required />
+      <select id="r-type">
+        <option value="book">Book</option>
+        <option value="paper">Paper</option>
+        <option value="article">Article</option>
+        <option value="video">Video</option>
+      </select>
+      <input id="r-url" type="text" placeholder="URL (optional)" style="flex:2" />
+      <button type="submit" style="flex:none">Add</button>
+    </form>
+  </div>
+
+  <!-- Outlook connection -->
+  <div class="card">
+    <h2>Outlook</h2>
+    <div id="outlook-idle">
+      <div class="label" id="outlook-status-text">Checking…</div>
+      <button class="sm" id="outlook-connect-btn" style="margin-top:.6rem;display:none">Connect Outlook</button>
+    </div>
+    <div id="outlook-pending" style="display:none">
+      <div class="label">Go to <strong id="outlook-uri"></strong> and enter this code:</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#a5b4fc;letter-spacing:.1em;margin:.5rem 0" id="outlook-code"></div>
+      <div class="label">Waiting for you to approve in your browser…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api';
+let activeSession = null;
+let dueCards = [];
+let currentCard = null;
+let assignmentMap = {};
+
+function fmtDue(d) {
+  if (!d) return '';
+  const today = new Date().toISOString().slice(0,10);
+  const cls = d < today ? 'overdue' : (d <= addDays(today,7) ? 'soon' : '');
+  return `<span class="${cls}">due ${d}</span>`;
+}
+function addDays(iso, n) {
+  const d = new Date(iso); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10);
+}
+function timeAgo(iso) {
+  const mins = Math.round((Date.now() - new Date(iso+'Z').getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1440) return `${Math.round(mins/60)}h ago`;
+  return `${Math.round(mins/1440)}d ago`;
+}
+function toggleBrief(id) {
+  const el = document.getElementById(`brief-${id}`);
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.textContent = (assignmentMap[id] && assignmentMap[id].content) || '';
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+async function load() {
+  const [health, courses, assignments, dueFlash, sessions, reading, csuStatus, outlookStatus] = await Promise.all([
+    fetch(`${API}/health`).then(r=>r.json()).catch(()=>null),
+    fetch(`${API}/courses`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/assignments`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/flashcards/due`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/sessions?limit=8`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/reading`).then(r=>r.json()).catch(()=>[]),
+    fetch(`${API}/csu/status`).then(r=>r.json()).catch(()=>null),
+    fetch(`${API}/outlook/status`).then(r=>r.json()).catch(()=>null),
+  ]);
+  renderOutlook(outlookStatus);
+
+  document.getElementById('status').textContent = health ? 'KindStudy ok' : 'KindStudy — backend unreachable';
+
+  const courseMap = Object.fromEntries(courses.map(c=>[c.id, c.name]));
+  const activeCourses = courses.filter(c=>c.status==='active');
+  document.getElementById('m-courses').textContent = activeCourses.length;
+
+  const today = new Date().toISOString().slice(0,10);
+  const weekOut = addDays(today, 7);
+  const open = assignments.filter(a=>!['done','completed','submitted'].includes(a.status));
+  const overdue = open.filter(a=>a.due_date && a.due_date < today);
+  const dueSoon = open.filter(a=>a.due_date && a.due_date >= today && a.due_date <= weekOut);
+  document.getElementById('m-overdue').textContent = overdue.length;
+  document.getElementById('m-due-soon').textContent = dueSoon.length;
+  document.getElementById('m-flash-due').textContent = dueFlash.length;
+
+  // Course selects
+  const courseOptions = '<option value="">No course</option>' + activeCourses.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  ['a-course','s-course','f-course'].forEach(id => {
+    const el = document.getElementById(id);
+    const prev = el.value;
+    el.innerHTML = courseOptions;
+    el.value = prev;
+  });
+
+  // Courses list
+  document.getElementById('course-list').innerHTML = courses.map(c => `
+    <li>
+      <div class="row"><span>${c.name}</span><span class="label">${c.subject||''} ${c.target_date?'· target '+c.target_date:''}</span></div>
+      <span class="tag">${Math.round((c.progress||0)*100)}%</span>
+    </li>`).join('') || '<li class="empty">No courses yet.</li>';
+
+  // Assignments list
+  assignmentMap = Object.fromEntries(assignments.map(a=>[a.id, a]));
+  const sorted = open.slice().sort((a,b) => (a.due_date||'9999') < (b.due_date||'9999') ? -1 : 1);
+  document.getElementById('assignment-list').innerHTML = sorted.map(a => `
+    <li>
+      <div class="row">
+        <span>
+          ${a.content ? `<a href="#" style="color:inherit;text-decoration:underline dotted" onclick="toggleBrief('${a.id}');return false">${a.title}</a>` : a.title}
+          ${a.source==='csu' ? '<span class="tag" style="background:#7c2d12;color:#fdba74">CSU</span>' : ''}
+          ${courseMap[a.course_id]?'<span class="tag">'+courseMap[a.course_id]+'</span>':''}
+        </span>
+        <span class="label">${fmtDue(a.due_date) || 'no due date'} · ${a.status}</span>
+        <div class="label" id="brief-${a.id}" style="display:none;white-space:pre-wrap;margin-top:.4rem;max-height:220px;overflow-y:auto"></div>
+      </div>
+      <div class="actions">
+        <button class="sm" onclick="setAssignmentStatus('${a.id}','in_progress')">In Progress</button>
+        <button class="sm" onclick="setAssignmentStatus('${a.id}','done')">Done</button>
+      </div>
+    </li>`).join('') || '<li class="empty">Nothing due — all caught up.</li>';
+
+  // CSU sync status
+  const csuBtn = document.getElementById('csu-sync-btn');
+  const csuLabel = document.getElementById('csu-status');
+  if (csuStatus && csuStatus.configured) {
+    csuBtn.style.display = 'inline-block';
+    csuLabel.textContent = csuStatus.last_sync ? `CSU synced ${timeAgo(csuStatus.last_sync)}` : 'CSU not synced yet';
+    if (csuStatus.last_error) csuLabel.textContent += ' (last sync failed)';
+  } else {
+    csuBtn.style.display = 'none';
+    csuLabel.textContent = '';
+  }
+
+  // Sessions
+  document.getElementById('session-list').innerHTML = sessions.map(s => `
+    <li>
+      <div class="row"><span>${s.title || s.session_type} ${courseMap[s.course_id]?'<span class="tag">'+courseMap[s.course_id]+'</span>':''}</span><span class="label">${s.duration_min!=null ? s.duration_min+' min' : 'in progress'}</span></div>
+    </li>`).join('') || '<li class="empty">No sessions yet.</li>';
+
+  const running = sessions.find(s => !s.ended_at);
+  if (running) {
+    activeSession = running.id;
+    document.getElementById('timer').textContent = `Session running: ${running.title || running.session_type}`;
+    document.getElementById('session-btn').textContent = 'End Session';
+  } else {
+    activeSession = null;
+    document.getElementById('timer').textContent = 'No active session';
+    document.getElementById('session-btn').textContent = 'Start';
+  }
+
+  // Flashcards due
+  dueCards = dueFlash;
+  renderNextCard();
+
+  // Reading list
+  document.getElementById('reading-list').innerHTML = reading.map(r => `
+    <li>
+      <div class="row"><span>${r.url ? `<a href="${r.url}" target="_blank" style="color:#a5b4fc">${r.title}</a>` : r.title} <span class="tag">${r.source_type}</span></span><span class="label">${r.author||''} · ${r.status}</span></div>
+      ${r.status!=='done' ? `<button class="sm" onclick="advanceReading('${r.id}','${r.status==='unread'?'reading':'done'}')">${r.status==='unread'?'Start':'Done'}</button>` : '<span style="color:#34d399;font-size:.7rem">✓</span>'}
+    </li>`).join('') || '<li class="empty">Nothing on your reading list.</li>';
+}
+
+function renderNextCard() {
+  const frontEl = document.getElementById('flash-front');
+  const backEl = document.getElementById('flash-back');
+  const showBtn = document.getElementById('flash-show');
+  const qRow = document.getElementById('flash-quality');
+  backEl.style.display = 'none';
+  qRow.style.display = 'none';
+  if (!dueCards.length) {
+    currentCard = null;
+    frontEl.textContent = 'No cards due — nice work.';
+    frontEl.className = 'empty';
+    showBtn.style.display = 'none';
+    return;
+  }
+  currentCard = dueCards[0];
+  frontEl.className = '';
+  frontEl.textContent = currentCard.front;
+  backEl.textContent = currentCard.back;
+  showBtn.style.display = 'inline-block';
+  showBtn.textContent = 'Show Answer';
+}
+
+document.getElementById('flash-show').addEventListener('click', () => {
+  document.getElementById('flash-back').style.display = 'block';
+  const qRow = document.getElementById('flash-quality');
+  qRow.style.display = 'flex';
+  qRow.innerHTML = [0,1,2,3,4,5].map(q => `<button class="sm" onclick="reviewCard(${q})">${q}</button>`).join('');
+});
+
+async function reviewCard(quality) {
+  if (!currentCard) return;
+  await fetch(`${API}/flashcards/${currentCard.id}/review`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({quality})});
+  dueCards.shift();
+  renderNextCard();
+  load();
+}
+
+function renderOutlook(s) {
+  const idle = document.getElementById('outlook-idle');
+  const pending = document.getElementById('outlook-pending');
+  const text = document.getElementById('outlook-status-text');
+  const btn = document.getElementById('outlook-connect-btn');
+
+  if (!s || !s.configured) {
+    idle.style.display = 'block'; pending.style.display = 'none';
+    text.textContent = 'Not configured (set MS_CLIENT_ID in .env)';
+    btn.style.display = 'none';
+    return;
+  }
+  if (s.pending) {
+    idle.style.display = 'none'; pending.style.display = 'block';
+    document.getElementById('outlook-uri').textContent = s.verification_uri || '';
+    document.getElementById('outlook-code').textContent = s.user_code || '';
+    return;
+  }
+  idle.style.display = 'block'; pending.style.display = 'none';
+  if (s.logged_in) {
+    text.textContent = `Connected as ${s.account}`;
+    btn.style.display = 'none';
+  } else {
+    const shortError = s.error ? s.error.split(' Trace ID:')[0] : null;
+    text.textContent = shortError ? `Not connected — ${shortError}` : 'Not connected';
+    btn.style.display = 'inline-block';
+  }
+}
+
+document.getElementById('outlook-connect-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('outlook-connect-btn');
+  btn.disabled = true;
+  try {
+    await fetch(`${API}/outlook/login/start`, {method:'POST'});
+  } catch (e) { /* status reflected on next poll */ }
+  btn.disabled = false;
+  load();
+  // Poll faster while a login is pending so the code/approval state updates promptly.
+  const poll = setInterval(async () => {
+    const s = await fetch(`${API}/outlook/status`).then(r=>r.json()).catch(()=>null);
+    renderOutlook(s);
+    if (!s || !s.pending) { clearInterval(poll); load(); }
+  }, 4000);
+});
+
+document.getElementById('csu-sync-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('csu-sync-btn');
+  btn.disabled = true; btn.textContent = 'Syncing…';
+  try {
+    await fetch(`${API}/csu/sync`, {method:'POST'});
+  } catch (e) { /* status text below reflects the outcome on next load */ }
+  btn.disabled = false; btn.textContent = 'Sync CSU Feed';
+  load();
+});
+
+async function setAssignmentStatus(id, status) {
+  await fetch(`${API}/assignments/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status})});
+  load();
+}
+
+async function advanceReading(id, status) {
+  await fetch(`${API}/reading/${id}/status`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status})});
+  load();
+}
+
+document.getElementById('assignment-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const title = document.getElementById('a-title').value.trim();
+  if (!title) return;
+  const course_id = document.getElementById('a-course').value || null;
+  const due_date = document.getElementById('a-due').value || null;
+  await fetch(`${API}/assignments`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, course_id, due_date})});
+  document.getElementById('a-title').value=''; document.getElementById('a-due').value=''; load();
+});
+
+document.getElementById('course-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = document.getElementById('c-name').value.trim();
+  if (!name) return;
+  const subject = document.getElementById('c-subject').value.trim() || null;
+  const target_date = document.getElementById('c-target').value || null;
+  await fetch(`${API}/courses`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, subject, target_date})});
+  document.getElementById('c-name').value=''; document.getElementById('c-subject').value=''; document.getElementById('c-target').value=''; load();
+});
+
+document.getElementById('reading-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const title = document.getElementById('r-title').value.trim();
+  if (!title) return;
+  const source_type = document.getElementById('r-type').value;
+  const url = document.getElementById('r-url').value.trim() || null;
+  await fetch(`${API}/reading`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, source_type, url})});
+  document.getElementById('r-title').value=''; document.getElementById('r-url').value=''; load();
+});
+
+document.getElementById('flash-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const front = document.getElementById('f-front').value.trim();
+  const back = document.getElementById('f-back').value.trim();
+  if (!front || !back) return;
+  const course_id = document.getElementById('f-course').value || null;
+  await fetch(`${API}/flashcards`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({front, back, course_id})});
+  document.getElementById('f-front').value=''; document.getElementById('f-back').value=''; load();
+});
+
+document.getElementById('session-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (activeSession) {
+    await fetch(`${API}/sessions/${activeSession}/end`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+  } else {
+    const course_id = document.getElementById('s-course').value || null;
+    const title = document.getElementById('s-title').value.trim() || null;
+    await fetch(`${API}/sessions/start`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({course_id, title})});
+  }
+  document.getElementById('s-title').value=''; load();
+});
+
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>
